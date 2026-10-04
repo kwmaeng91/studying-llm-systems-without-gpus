@@ -38,22 +38,25 @@ BACKEND_MODULE = "vidur"
 WORK_DIR = Path(os.environ.get("LSG_WORK_DIR", Path.home() / ".llm-systems-wo-gpus"))
 BACKEND_DIR = Path(os.environ.get("LSG_BACKEND_DIR", WORK_DIR / "backend"))
 
-# Runtime deps of the simulator itself. We skip ray / streamlit / jupyterlab from
-# the backend's pyproject: simulation does not need them and they are slow to install.
-_DEPS = [
-    "numpy<2",
-    "pandas",
-    "scikit-learn==1.5.0",
-    "ddsketch==3.0.1",
-    "fasteners==0.17.3",
-    "pyyaml",
-    "randomname==0.2.1",
-    "wandb==0.16.6",
-    "plotly",
-    "matplotlib",
-    "seaborn",
-    "kaleido==0.2.1",
-]
+# Packages the simulator imports, as {import name: pip name}. Deliberately
+# unpinned: the backend pins old releases (numpy<2, scikit-learn 1.5) that have no
+# wheels for recent Pythons and would compile from source on Colab for 10+ minutes.
+# Current releases give identical results. Profiling-only deps (torch, ray, ...)
+# are skipped.
+_DEPS = {
+    "numpy": "numpy",
+    "pandas": "pandas",
+    "scipy": "scipy",
+    "sklearn": "scikit-learn",
+    "matplotlib": "matplotlib",
+    "seaborn": "seaborn",
+    "plotly": "plotly",
+    "yaml": "pyyaml",
+    "ddsketch": "ddsketch",
+    "fasteners": "fasteners",
+    "randomname": "randomname",
+    "wandb": "wandb",
+}
 
 # The simulator pre-computes operator runtimes on a grid of (batch size, tokens, ...).
 # Its defaults (600k tokens x batch 512) need >10 GB of RAM; this grid fits in
@@ -78,19 +81,22 @@ def _backend_dir() -> Path:
     return BACKEND_DIR / BACKEND_SUBDIR
 
 
-def setup(quiet: bool = True) -> Path:
-    """Make sure the simulator is downloaded and its dependencies are importable."""
+def setup() -> Path:
+    """Make sure the simulator is downloaded and its dependencies are importable.
+
+    Only missing packages are installed, so on Colab this is usually a handful of
+    small pure-Python packages.
+    """
     if not (_backend_dir() / BACKEND_MODULE).exists():
-        print(f"Downloading the simulator into {BACKEND_DIR} (one-time, ~1 min) ...")
+        print(f"Downloading the simulator into {BACKEND_DIR} (one-time, ~1 min) ...", flush=True)
         subprocess.run(
-            ["git", "clone", "--depth", "1", BACKEND_REPO, str(BACKEND_DIR)], check=True
+            ["git", "clone", "-q", "--depth", "1", BACKEND_REPO, str(BACKEND_DIR)], check=True
         )
-    missing = [m for m in ("sklearn", "ddsketch", "fasteners", "randomname", "wandb")
-               if importlib.util.find_spec(m) is None]
+    missing = [pip for mod, pip in _DEPS.items() if importlib.util.find_spec(mod) is None]
     if missing:
-        print(f"Installing simulator dependencies ({', '.join(missing)} missing) ...")
+        print(f"Installing {', '.join(missing)} ...", flush=True)
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", *(["-q"] if quiet else []), *_DEPS],
+            [sys.executable, "-m", "pip", "install", "-q", "--progress-bar", "off", *missing],
             check=True,
         )
     WORK_DIR.mkdir(parents=True, exist_ok=True)

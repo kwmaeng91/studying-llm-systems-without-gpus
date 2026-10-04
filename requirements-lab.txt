@@ -1,14 +1,15 @@
-# Everything a lab notebook needs (the simulator itself is downloaded by llm_systems_wo_gpus.setup()).
-numpy<2
+# Everything a lab notebook needs (the simulator itself is downloaded by
+# llm_systems_wo_gpus.setup()). Unpinned on purpose: see _DEPS in labs/llm_systems_wo_gpus.py.
+numpy
 pandas
+scipy
+scikit-learn
 matplotlib
-scikit-learn==1.5.0
-ddsketch==3.0.1
-fasteners==0.17.3
-pyyaml
-randomname==0.2.1
-wandb==0.16.6
-plotly
 seaborn
-kaleido==0.2.1
+plotly
+pyyaml
+ddsketch
+fasteners
+randomname
+wandb
 ipykernel
