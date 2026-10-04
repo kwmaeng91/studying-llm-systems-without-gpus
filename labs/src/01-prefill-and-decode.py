@@ -53,6 +53,17 @@
 # top of them just for these lectures: it installs the simulator, turns its hundreds
 # of command-line flags into a few Python arguments, and returns results as tables.
 #
+# :::{note}
+# To run for free on Colab (~12 GB of RAM, 2 CPU cores), `lsg` uses a
+# **stripped-down configuration** of the simulator. It precomputes kernel runtimes
+# only up to **16,384 tokens per request** (prompt + output), batches of **128
+# requests**, and prefill chunks of **4,096 tokens**, and `simulate` raises an error
+# beyond them. These are limits of this course setup, not of the simulator:
+# the full Vidur-Agent handles far longer contexts and was validated against much
+# longer, real multi-turn agent traces. With more memory you can raise them in
+# `LITE_GRID` inside `llm_systems_wo_gpus.py`.
+# :::
+#
 # The first run downloads the simulator and installs its dependencies, which takes
 # about a minute.
 
@@ -221,10 +232,52 @@ slope = (out["E2E p50 (s)"].iloc[-1] - out["E2E p50 (s)"].iloc[0]) / (out.index[
 plt.title(f"slope = {1e3 * slope:.1f} ms/token");
 
 # %% [markdown]
-# For a typical chat request (a few hundred prompt tokens and a few hundred
-# output tokens), **decode dominates E2E latency**. Only for very long prompts with
-# short answers, such as summarizing a long document, does prefill take a
-# comparable share.
+# ## Where does the time go?
+#
+# Which phase matters more for a whole request? We simulate a grid of request
+# shapes, from short prompts to 15K-token documents and from 64 to 1,024 output
+# tokens, and split each request's E2E latency into **prefill** (the TTFT) and
+# **decode** (everything after the first token).
+
+# %%
+import pandas as pd
+
+rows = []
+for p_len in (256, 1024, 4096, 15000):
+    for d_len in (64, 256, 1024):
+        s_ = lsg.simulate(**SYSTEM, prefill_tokens=p_len, decode_tokens=d_len,
+                          qps=0.05, num_requests=5).summary()
+        ttft = s_["TTFT p50 (ms)"] / 1e3
+        rows.append({"prompt": p_len, "output": d_len,
+                     "prefill (s)": ttft, "decode (s)": s_["E2E p50 (s)"] - ttft})
+breakdown = pd.DataFrame(rows)
+breakdown["decode share"] = breakdown["decode (s)"] / (breakdown["prefill (s)"] + breakdown["decode (s)"])
+breakdown.round(2)
+
+# %%
+labels = [f"{p:,} in / {d:,} out" for p, d in zip(breakdown["prompt"], breakdown["output"])]
+total = breakdown["prefill (s)"] + breakdown["decode (s)"]
+prefill_pct = 100 * breakdown["prefill (s)"] / total
+fig, ax = plt.subplots(figsize=(8, 4.4))
+ax.barh(labels, prefill_pct, label="prefill (TTFT)", color="C0")
+ax.barh(labels, 100 - prefill_pct, left=prefill_pct, label="decode", color="C1")
+for i, t in enumerate(total):
+    ax.text(101, i, f"{t:.1f} s total", va="center", fontsize=8)
+ax.axvline(50, color="gray", ls=":", lw=1)
+ax.invert_yaxis()
+ax.set(xlim=(0, 100), xlabel="share of E2E latency (%)", ylabel="request shape (prompt / output tokens)")
+ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False)
+fig.tight_layout()
+
+# %% [markdown]
+# **Decode dominates** for nearly every shape. One output token takes ~39 ms,
+# about as long as prefilling ~190 prompt tokens (0.2 ms each), so even a 4K-token
+# prompt with a 64-token answer spends most of its time in decode. Only an
+# extreme case, a 15K-token document with a short 64-token answer such as a
+# summary, tips the balance toward prefill.
+#
+# This is why so much LLM serving research targets decode: it is where a single
+# request spends its time, and it is also where the GPU's math units sit idle.
 #
 # ## Summary
 #

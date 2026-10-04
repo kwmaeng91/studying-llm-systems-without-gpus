@@ -209,6 +209,13 @@ def simulate(
     backend = setup() if not (_backend_dir() / BACKEND_MODULE).exists() else _backend_dir()
     if trace is None:
         trace = make_trace(prefill_tokens, decode_tokens, num_requests)
+    lengths = pd.read_csv(trace)
+    longest = int((lengths["num_prefill_tokens"] + lengths["num_decode_tokens"]).max())
+    if longest > LITE_GRID["prediction_max_tokens_per_request"]:
+        raise ValueError(
+            f"A request has {longest:,} prompt+output tokens; the course setup supports at "
+            f"most {LITE_GRID['prediction_max_tokens_per_request']:,} per request "
+            "(LITE_GRID['prediction_max_tokens_per_request'], kept small to save memory).")
 
     args: dict = {
         "--seed": seed,

@@ -23,6 +23,17 @@ Random forests **interpolate but do not extrapolate**. Past the profiled range
 edge. `lsg.catalog()` shows each model's profiled limits.
 :::
 
+### The course's stripped-down configuration
+
+The full lookup table covers up to 600,000 tokens per request and batches of
+512, which needs more than 10 GB of RAM. To run on free Colab and Binder
+machines, `lsg` shrinks it (`LITE_GRID` in `llm_systems_wo_gpus.py`) to
+**16,384 tokens per request**, **batches of 128**, and **prefill chunks of 4,096
+tokens**. These limits belong to the course setup, not to the simulator: the full
+Vidur-Agent handles far longer contexts and was validated against much longer,
+real multi-turn agent traces. On a machine with more memory, raise the
+`LITE_GRID` values to lift them.
+
 ## 3. Replay the workload
 
 The simulator keeps an event queue: request arrivals, batch starts, batch ends,
