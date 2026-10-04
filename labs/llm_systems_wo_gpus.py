@@ -343,9 +343,14 @@ def quiz(questions: list[dict]):
     HTML such as ``<code>``. The output is self-contained HTML+JS, so it works in
     Jupyter, Colab, and on the rendered website (where the saved output is shown).
     """
+    from IPython.display import HTML
+    return HTML(quiz_html(questions))
+
+
+def quiz_html(questions: list[dict]) -> str:
+    """The HTML+JS behind :func:`quiz`, also used by the docs' ``{quiz}`` directive."""
     import html
     import uuid
-    from IPython.display import HTML
 
     qid = "lsg" + uuid.uuid4().hex[:8]
     parts = [f'<style>{_QUIZ_CSS}</style><div class="lsg-quiz" id="{qid}">']
@@ -374,4 +379,4 @@ def quiz(questions: list[dict]):
     }});
   }});
 }})();</script>""")
-    return HTML("".join(parts))
+    return "".join(parts)

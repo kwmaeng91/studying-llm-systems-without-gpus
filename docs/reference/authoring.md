@@ -71,6 +71,18 @@ lsg.quiz([
 The `remove-input` tag hides the code (and so the answers) on the website, and
 `cellView="form"` folds it away in Colab. Strings may contain HTML, e.g. `<code>`.
 
+On a Markdown page (`.md`, no notebook), use the `{quiz}` directive instead. It
+renders identically:
+
+````md
+```{quiz}
+- q: Is prefill compute-bound or memory-bound?
+  options: [Compute-bound, Memory-bound]
+  answer: 0
+  explain: Each weight is reused for every prompt token.
+```
+````
+
 ## Keeping notebooks light
 
 - Every simulation should finish in seconds and use < 1 GB of RAM, so labs run on

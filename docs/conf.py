@@ -1,6 +1,11 @@
 # Sphinx configuration for "LLM Systems Without GPUs".
 # Build locally:  sphinx-build -b html docs docs/_build/html
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent / "_ext"))
+
 project = "LLM Systems Without GPUs"
 author = "PAWS Lab, Penn State"
 copyright = "2026, PAWS Lab"
@@ -16,6 +21,7 @@ extensions = [
     "myst_nb",
     "sphinx_copybutton",
     "sphinx.ext.mathjax",
+    "quiz_directive",  # docs/_ext: {quiz} blocks on Markdown pages
 ]
 
 # Notebooks are committed with outputs (executed on CPU with labs/build_notebooks.py);

@@ -3,7 +3,7 @@
 This series assumes some background in Python, in how transformer language models
 work, and in what limits a GPU's speed. You don't need to be an expert in any of
 them. Start with the vocabulary below so we all use the same words, then use the
-links to fill any gaps. Items marked *optional* go deeper than the lectures require.
+links to fill any gaps.
 
 ## Vocabulary
 
@@ -121,7 +121,6 @@ You will read and lightly edit Python in Jupyter notebooks, and look at results
 in pandas tables.
 
 - [The Python Tutorial](https://docs.python.org/3/tutorial/): sections 3–5 are enough.
-- [10 minutes to pandas](https://pandas.pydata.org/docs/user_guide/10min.html): selecting columns and rows, `describe()`, plotting.
 - [Welcome to Colab](https://colab.research.google.com/notebooks/intro.ipynb): running cells, saving a copy.
 
 ## Transformers and LLMs
@@ -133,9 +132,6 @@ each new token back in.
 - [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) (Jay Alammar): the architecture, visually.
 - [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/) (Jay Alammar): decoder-only models and token-by-token generation.
 - [Transformer Explainer](https://poloclub.github.io/transformer-explainer/) (Polo Club, Georgia Tech): an interactive visualization of GPT-2 running live in your browser. Type a prompt and watch it flow through every layer.
-- [Transformers, the tech behind LLMs](https://www.3blue1brown.com/lessons/gpt) and
-  [Attention in transformers, step-by-step](https://www.3blue1brown.com/lessons/attention) (3Blue1Brown): video explanations.
-- *Optional:* [Let's build GPT: from scratch, in code, spelled out](https://www.youtube.com/watch?v=kCc8FmEb1nY) (Andrej Karpathy).
 
 ## The KV cache
 
@@ -144,7 +140,7 @@ so it does not recompute them for every new token. This KV cache is central to
 everything in this series: it lets decode process one token per step, and it
 competes with the weights for GPU memory.
 
-- [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/), section on self-attention during generation.
+- [Understanding and Coding the KV Cache in LLMs from Scratch](https://magazine.sebastianraschka.com/p/coding-the-kv-cache-in-llms) (Sebastian Raschka): what the cache stores and why, with diagrams, then a from-scratch implementation.
 - [Transformer Inference Arithmetic](https://kipp.ly/transformer-inference-arithmetic/) (kipply): KV-cache size and the cost of a generation step.
 
 ## What limits a GPU's speed
@@ -156,7 +152,6 @@ roofline model, and lecture 1 is built on it.
 
 - [Making Deep Learning Go Brrrr From First Principles](https://horace.io/brrr_intro.html) (Horace He): compute-, memory- and overhead-bound, without math.
 - [All About Rooflines](https://jax-ml.github.io/scaling-book/roofline/) (*How To Scale Your Model*): the roofline model with worked examples.
-- *Optional:* [All About Transformer Inference](https://jax-ml.github.io/scaling-book/inference/) (*How To Scale Your Model*).
 
 Numbers worth remembering for the GPU used in the labs, the
 [NVIDIA A100-80GB](https://www.nvidia.com/en-us/data-center/a100/):
@@ -169,13 +164,31 @@ Numbers worth remembering for the GPU used in the labs, the
 
 ## Are you ready?
 
-You're ready for lecture 1 if you can answer these, at least roughly:
+You're ready for lecture 1 if you can answer these. Click an answer to check it;
+wrong answers can be retried.
 
-1. How many bytes does a 30-billion-parameter model take in 16-bit precision?
-2. When an LLM produces a 100-token answer, how many times does it run the model?
-3. What does the KV cache store, and why does it grow as the conversation gets longer?
-4. If a computation does 10 FLOPs for every byte it reads, is an A100 limited by
-   compute or by memory bandwidth? (Hint: 312 TFLOP/s ÷ 2 TB/s.)
+```{quiz}
+- q: How much memory does a 30-billion-parameter model take in 16-bit precision?
+  options: [30 GB, 60 GB, 120 GB, 480 GB]
+  answer: 1
+  explain: 16 bits is 2 bytes per parameter, so 30 × 10<sup>9</sup> × 2 B = 60 GB.
+- q: To produce a 100-token answer, about how many times does an LLM run the model (forward passes)?
+  options: ["1", "About 100", "100 × the prompt length"]
+  answer: 1
+  explain: Generation is autoregressive, one token per forward pass. The first pass (prefill) handles the whole prompt and yields the first token; each later token needs one more pass.
+- q: What does the KV cache store?
+  options: [The model's weights, The attention keys and values of the tokens processed so far, The generated text, The gradients used for training]
+  answer: 1
+  explain: Keeping each token's keys and values means they are computed once instead of at every generation step.
+- q: Why does the KV cache grow as a conversation gets longer?
+  options: [It stores an entry for every token so far, The model's weights grow over time, It keeps a copy of every previous answer's weights]
+  answer: 0
+  explain: Every new token, prompt or output, adds its keys and values in every layer.
+- q: A computation does 10 FLOPs for every byte it reads from memory. On an A100 (312 TFLOP/s, 2 TB/s), what limits it?
+  options: [Compute (FLOP/s), Memory bandwidth]
+  answer: 1
+  explain: The A100 can do 312 × 10<sup>12</sup> ÷ 2 × 10<sup>12</sup> ≈ 156 FLOPs in the time it reads one byte. At only 10 FLOPs per byte, the math units wait for memory.
+```
 
 ## Setting up
 
