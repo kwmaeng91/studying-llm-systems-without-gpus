@@ -43,8 +43,18 @@
 #
 # Click **Open in Colab** or **Launch Binder** at the top right of this page to
 # run it in your browser. No GPU is needed: the course's simulator models an LLM
-# serving system on the CPU. The first run downloads the simulator and installs
-# its dependencies, which takes about a minute.
+# serving system on the CPU.
+#
+# The simulations in these lectures rely on
+# [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent), which extends Microsoft's
+# [Vidur](https://github.com/microsoft/vidur) LLM inference simulator
+# (Agrawal et al., MLSys 2024). We use them as the simulation engine.
+# `llm_systems_wo_gpus` (imported as `lsg`) is an easy-to-use wrapper we built on
+# top of them just for these lectures: it installs the simulator, turns its hundreds
+# of command-line flags into a few Python arguments, and returns results as tables.
+#
+# The first run downloads the simulator and installs its dependencies, which takes
+# about a minute.
 
 # %%
 import os, sys, urllib.request
