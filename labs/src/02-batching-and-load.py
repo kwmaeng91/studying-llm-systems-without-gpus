@@ -9,32 +9,36 @@
 # %% [markdown]
 # # [TEMP] 2. Batching, Load, and the Throughput–Latency Trade-off
 #
-# Lecture 1 showed that a lone decode step is **memory-bound**: the GPU streams
-# 13 GB of weights to produce one token. Most of its compute sits idle. The fix
-# that every serving system uses is to **batch** requests. One pass over the
-# weights then produces one token for *each* request in the batch.
+# Lecture 1 showed that a lone decode step is **memory-bound**: each GPU streams
+# its half of the 65.5 GB of weights to produce a single token, while its math
+# units sit almost idle. Every serving system fixes this by **batching**: one
+# forward pass processes many requests at once, so each weight loaded from memory
+# is used for all of them.
 #
-# That raises two questions for a serving system:
+# This lecture asks two questions:
 #
-# 1. How much throughput does batching buy, and what does it cost in latency?
-# 2. With requests arriving at random times, what load can one GPU sustain before
-#    latency blows up?
+# 1. What does batching do to TTFT and TPOT, and how much throughput does it buy?
+# 2. When requests arrive at random times, how much load can the system sustain
+#    before latency blows up?
 #
 # :::{admonition} Learning goals
-# - Quantify how batch size trades per-token latency for throughput.
-# - Read a throughput–latency curve and find its "knee".
-# - Explain why tail latency (p99) degrades long before median latency does.
+# - Explain why batching prefills makes TTFT grow linearly, while batching decodes
+#   leaves TPOT almost unchanged.
+# - Read a throughput–latency curve, find its knee, and relate it to Little's law.
+# - Explain why tail latency (p99) degrades before the median (p50), and define goodput.
 # :::
 
 # %% [markdown]
 # ## Setup
+#
+# Same setup as {doc}`01-prefill-and-decode`: Qwen2.5-32B-Instruct on two A100s.
 
 # %%
 import os, sys, urllib.request
 sys.path.insert(0, os.path.abspath("../../labs"))
 try:
     import llm_systems_wo_gpus as lsg
-except ImportError:
+except ImportError:  # outside the course repo (e.g. Colab): fetch the package
     urllib.request.urlretrieve(
         "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/llm_systems_wo_gpus.py",
         "llm_systems_wo_gpus.py")
@@ -45,104 +49,245 @@ import matplotlib.pyplot as plt
 import pandas as pd
 plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha": .3})
 
-# %% [markdown]
-# ## Batching an offline workload
-#
-# Start with the simplest case, an **offline** job: 256 requests (512 prompt
-# tokens, 128 output tokens each) all arrive at time 0 (`qps=None`). We cap how
-# many requests the scheduler may run together with `batch_size_cap`.
-# `batch_size_cap=1` is the "no batching" baseline.
-
-# %%
-caps = [1, 2, 4, 8, 16, 32, 64, 128]
-offline = lsg.sweep("batch_size_cap", caps, qps=None, num_requests=256)
-offline[["TPOT p50 (ms)", "throughput (tok/s)", "makespan (s)"]]
-
-# %%
-fig, ax1 = plt.subplots()
-ax1.plot(caps, offline["throughput (tok/s)"], "o-", label="throughput")
-ax1.set(xscale="log", xlabel="batch size cap", ylabel="throughput (tok/s)")
-ax1.set_xticks(caps, caps)
-ax2 = ax1.twinx()
-ax2.plot(caps, offline["TPOT p50 (ms)"], "s--", color="C1", label="TPOT")
-ax2.set_ylabel("TPOT p50 (ms)", color="C1"); ax2.grid(False)
-fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(.5, 1.02));
+SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=2)
 
 # %% [markdown]
-# Up to a batch of about 8, throughput grows **almost linearly** with batch size
-# while TPOT barely moves. The GPU was memory-bound, so the extra requests ride
-# along nearly for free. Beyond that, the work per step (the matrix multiplies and
-# especially attention over every request's KV cache) becomes significant, and
-# returns diminish: going from 32 to 128 buys only ~1.3× more throughput but more
-# than doubles TPOT. **The right batch size depends on how much latency you can afford.**
+# :::{warning}
+# **Unrealistic, but educational: prefill-only and decode-only requests.**
 #
-# :::{note}
-# Batch size is not only a scheduler setting. Every running request keeps its
-# KV cache in GPU memory, so the largest *possible* batch is limited by
-# `(GPU memory − weights) / (KV bytes per token × tokens per request)`. In Llama-2-7B
-# a token's KV cache takes $2 \times 32\ \text{layers} \times 4096 \times 2\ \text{B} = 512$ KB.
+# Real requests have both a prompt and an output, and real schedulers mix them:
+# the same forward pass can contain one request's prompt and other requests' decode
+# tokens. Mixing makes the two effects in this lecture hard to tell apart. So in
+# this lecture every request is one of two artificial kinds:
+#
+# - **prefill-only**: a normal prompt, but only **1** output token (`decode_tokens=1`);
+# - **decode-only**: a **1-token** prompt (`prefill_tokens=1`), then a normal output.
+#
+# No real workload looks like this. We use them only to see prefill and decode
+# in isolation.
 # :::
 
 # %% [markdown]
-# ## Online serving: requests arrive over time
+# ## Batching prefills
 #
-# Real services see requests arriving at random. We model arrivals as a
-# **Poisson process** with rate `qps` and sweep the load. Every other setting stays
-# at its default (`batch_size_cap=128`).
+# $B$ prefill-only requests with 512-token prompts arrive at the same time. The
+# scheduler caps how many tokens one forward pass may process (`chunk_size`, a
+# knob we meet properly in lecture 3). Here we raise it to 16,384 so that all $B$
+# prompts fit into **one** forward pass.
 
 # %%
-loads = [1, 2, 4, 8, 12, 14, 16, 20, 24, 32]
-online = lsg.sweep("qps", loads, num_requests=300)
-online[["TTFT p50 (ms)", "TTFT p99 (ms)", "TPOT p50 (ms)", "queueing p50 (ms)", "throughput (tok/s)"]]
+rows = []
+for b in [1, 2, 4, 8, 16, 32]:
+    r = lsg.simulate(**SYSTEM, qps=None, num_requests=b,
+                     prefill_tokens=512, decode_tokens=1, chunk_size=16384)
+    ttft = r.ttft.median()
+    rows.append({"batch size": b, "TTFT (ms)": 1e3 * ttft,
+                 "prefill throughput (tok/s)": b * 512 / ttft})
+prefill = pd.DataFrame(rows).set_index("batch size")
+prefill.round(0)
+
+# %% [markdown]
+# `qps=None` means all requests arrive at time 0. Every request in the batch gets
+# its first token at the same moment, when the shared forward pass ends.
 
 # %%
 fig, ax = plt.subplots(1, 2, figsize=(10, 3.4))
-ax[0].plot(online.index, online["throughput (tok/s)"], "o-")
-ax[0].plot(online.index, online.index * (512 + 128), ":", color="gray", label="offered load")
-ax[0].set(xlabel="arrival rate (req/s)", ylabel="throughput (tok/s)"); ax[0].legend()
-ax[1].plot(online.index, online["TTFT p50 (ms)"], "o-", label="TTFT p50")
-ax[1].plot(online.index, online["TTFT p99 (ms)"], "s-", label="TTFT p99")
-ax[1].set(xlabel="arrival rate (req/s)", ylabel="TTFT (ms)", yscale="log"); ax[1].legend()
+ax[0].plot(prefill.index, prefill["TTFT (ms)"], "o-")
+ax[0].set(xlabel="batch size (requests)", ylabel="TTFT (ms)", title="Prefill: latency")
+ax[1].plot(prefill.index, prefill["prefill throughput (tok/s)"], "o-", color="C2")
+ax[1].set(xlabel="batch size (requests)", ylabel="prompt tokens / s", title="Prefill: throughput",
+          ylim=(0, 1.3 * prefill["prefill throughput (tok/s)"].max()))
 fig.tight_layout()
 
 # %% [markdown]
-# There are two regimes:
+# TTFT grows **linearly** with the batch size: each extra request adds about 80 ms.
+# Throughput improves only modestly (~30%), and almost all of that comes from going
+# from 1 to 4 requests, where a single 512-token prompt does not quite keep the GPUs
+# busy. This follows from lecture 1: prefill is already **compute-bound**. A batch
+# of $B$ prompts is simply $B$ times the arithmetic, and the GPUs were already busy
+# doing arithmetic, so there is little to gain.
 #
-# - **Below the knee** (≲ 12 req/s), throughput tracks the offered load: every
-#   request is served as it arrives. Latency still creeps up, because more
-#   concurrent requests mean larger batches and slower steps.
-# - **Past the knee**, throughput flattens at the GPU's capacity (~9k tok/s,
-#   close to the offline maximum above) and the extra requests **queue**. TTFT jumps
-#   by an order of magnitude and would keep growing without bound if the
-#   experiment ran longer.
+# ## Batching decodes
 #
-# Also notice that **p99 TTFT degrades well before p50**. Poisson arrivals come in
-# bursts, and the unlucky requests that land in a burst wait behind it. A service
-# with a latency target ("p99 TTFT < 500 ms") therefore has to run well below
-# its raw capacity.
+# Now $B$ decode-only requests (256 output tokens each) arrive together and decode
+# side by side. Every forward pass produces one token for each of the $B$ requests.
+
+# %%
+rows = []
+for b in [1, 2, 4, 8, 16, 32, 64, 128]:
+    r = lsg.simulate(**SYSTEM, qps=None, num_requests=b, prefill_tokens=1, decode_tokens=256)
+    rows.append({"batch size": b, "TPOT (ms)": 1e3 * r.tpot.median(),
+                 "decode throughput (tok/s)": r.summary()["throughput (tok/s)"]})
+decode = pd.DataFrame(rows).set_index("batch size")
+decode.round(1)
+
+# %%
+fig, ax = plt.subplots(1, 2, figsize=(10, 3.4))
+ax[0].plot(decode.index, decode["TPOT (ms)"], "o-", color="C1")
+ax[0].set(xscale="log", xlabel="batch size (requests)", ylabel="TPOT (ms)", title="Decode: latency",
+          ylim=(0, 1.5 * decode["TPOT (ms)"].max()))
+ax[1].plot(decode.index, decode["decode throughput (tok/s)"], "o-", color="C2")
+ax[1].set(xscale="log", yscale="log", xlabel="batch size (requests)", ylabel="output tokens / s",
+          title="Decode: throughput")
+for a in ax:
+    a.set_xticks(decode.index, decode.index)
+fig.tight_layout()
+
+# %% [markdown]
+# The opposite picture. TPOT stays at about 40 ms from 1 to 128 requests, while
+# throughput grows by more than 100×. Decode is **memory-bound**: each step loads
+# all the weights anyway, and the extra requests reuse them almost for free.
+# (The small dips and bumps in TPOT are noise from the simulator's fitted
+# runtime models, not a real effect.)
+#
+# | | Batching prefills | Batching decodes |
+# |---|---|---|
+# | Latency | grows ~linearly with batch size | almost unchanged |
+# | Throughput | barely improves | grows ~linearly with batch size |
+# | Why | already compute-bound | memory-bound: weights shared by the batch |
+#
+# :::{note}
+# What stops us from batching even more decodes? Every running request keeps its
+# KV cache in GPU memory. Here each token's KV cache takes
+# $2 \times 64\ \text{layers} \times 8\ \text{KV heads} \times 128 \times 2\ \text{B} = 256$ KB,
+# and after the weights the two GPUs have room for about 350,000 tokens. With
+# 256-token requests, the scheduler's cap of 128 running requests binds first.
+# With long conversations, KV-cache memory becomes the limit.
+# :::
+
+# %% [markdown]
+# ## Load: requests arriving over time
+#
+# Real services don't receive requests in neat batches. They arrive at random
+# moments, and the scheduler adds each newcomer to the running batch as soon as
+# there is room (*continuous batching*). We model arrivals as a **Poisson
+# process** with rate `qps` (requests per second) and sweep the load, still using
+# decode-only requests with 256 output tokens.
+
+# %%
+loads = [1, 2, 4, 6, 8, 10, 11, 12, 13, 14, 16, 20]
+online = lsg.sweep("qps", loads, **SYSTEM, num_requests=600, prefill_tokens=1, decode_tokens=256)
+online[["TTFT p50 (ms)", "TTFT p99 (ms)", "TPOT p50 (ms)", "throughput (tok/s)"]].round(1)
+
+# %%
+fig, ax = plt.subplots(1, 3, figsize=(13, 3.4))
+ax[0].plot(online.index, online["throughput (tok/s)"], "o-", color="C2", label="achieved")
+ax[0].plot(online.index, online.index * 256, ":", color="gray", label="offered load")
+ax[0].set(xlabel="arrival rate (req/s)", ylabel="output tokens / s", title="Throughput",
+          ylim=(0, 1.2 * online["throughput (tok/s)"].max()))
+ax[0].legend()
+ax[1].plot(online.index, online["TPOT p50 (ms)"], "o-", color="C1")
+ax[1].set(xlabel="arrival rate (req/s)", ylabel="TPOT p50 (ms)", title="TPOT",
+          ylim=(0, 1.5 * online["TPOT p50 (ms)"].max()))
+ax[2].plot(online.index, online["TTFT p50 (ms)"], "o-", label="p50")
+ax[2].plot(online.index, online["TTFT p99 (ms)"], "s-", label="p99")
+ax[2].set(xlabel="arrival rate (req/s)", ylabel="TTFT (ms)", title="TTFT", yscale="log")
+ax[2].legend()
+fig.tight_layout()
+
+# %% [markdown]
+# Two regimes, with a sharp **knee** at about 10–11 requests per second:
+#
+# - **Below the knee**, throughput tracks the offered load: every request is
+#   served as it arrives. TPOT rises only slightly as the running batch grows, as
+#   the decode-batching experiment predicts.
+# - **Past the knee**, throughput flattens at the system's capacity and the extra
+#   requests **wait in a queue**. TPOT stays flat, because the batch is already at
+#   its cap, but TTFT jumps from ~60 ms to seconds. It keeps growing the longer
+#   the overload lasts.
+#
+# With decode-only requests, TTFT is almost pure **waiting time**, which makes the
+# queueing easy to see.
+#
+# ### Where is the knee? Little's law
+#
+# A basic result from queueing theory, **Little's law**, says that the average
+# number of requests in a system equals the arrival rate × the time each request
+# spends there. Here, at most 128 requests can be running (the batch cap), and each
+# takes about 256 tokens × 42 ms ≈ 10.8 s. So the most the system can sustain is
+#
+# $$
+# \text{max arrival rate} \approx \frac{128\ \text{running requests}}{10.8\ \text{s per request}} \approx 12\ \text{req/s},
+# $$
+#
+# right where the curves bend.
+
+# %% [markdown]
+# ### p99 degrades before p50
+#
+# At 10 req/s, median TTFT is still ~70 ms, but p99 has already climbed to
+# several hundred milliseconds. Poisson arrivals come in **bursts**, and the
+# unlucky requests that land in a burst find the batch full and wait. A
+# service that promises a tail-latency target therefore has to run below its raw
+# capacity.
 #
 # ## Goodput: throughput that meets the SLO
 #
-# A common way to collapse this curve into a single number is **goodput**: the
-# highest load at which a latency target (SLO) still holds.
+# A common way to summarize this curve is **goodput**: the highest load at which
+# the service-level objective (SLO) still holds.
 
 # %%
-slo_ttft_ms, slo_tpot_ms = 500, 25
+slo_ttft_ms, slo_tpot_ms = 500, 50
 ok = online[(online["TTFT p99 (ms)"] < slo_ttft_ms) & (online["TPOT p99 (ms)"] < slo_tpot_ms)]
-print(f"Max load meeting p99 TTFT<{slo_ttft_ms}ms and p99 TPOT<{slo_tpot_ms}ms: "
-      f"{ok.index.max()} req/s  ->  {ok['throughput (tok/s)'].max():.0f} tok/s goodput")
+print(f"SLO: p99 TTFT < {slo_ttft_ms} ms and p99 TPOT < {slo_tpot_ms} ms")
+print(f"Goodput: {ok.index.max()} req/s = {ok['throughput (tok/s)'].max():.0f} output tok/s, "
+      f"vs. a raw capacity of ~{online['throughput (tok/s)'].max():.0f} tok/s")
 
 # %% [markdown]
-# ## Exercises
+# ## What's next: mixing prefill and decode
 #
-# :::{admonition} Try it
+# So far, every request was either all prefill or all decode. Real requests have
+# both, so a running batch constantly receives new prompts while other requests are
+# still decoding.
+#
+# :::{admonition} Think about it
 # :class: exercise
-# 1. Rerun the online sweep with `batch_size_cap=16`. How do the knee and the
-#    saturation throughput move? Is there any load at which the smaller cap is
-#    *better*?
-# 2. Make the workload decode-heavy (`prefill_tokens=128, decode_tokens=512`) and then
-#    prefill-heavy (`prefill_tokens=2048, decode_tokens=32`). Which saturates at a
-#    higher **request** rate, and which at a higher **token** rate? Why?
-# 3. Tighten the SLO to p99 TTFT < 200 ms. How much goodput do you lose? Then
-#    try 2 replicas (`num_replicas=2`) at twice the load. Does goodput double?
+# What will happen if prefill and decode are mixed in the same batch? Think about
+# what a 4,000-token prompt does to the TPOT of the requests decoding next to it,
+# using what you measured above.
 # :::
+#
+# The next lecture answers this question.
+#
+# ## Check your understanding
+#
+# Click an answer to check it. Wrong answers can be retried.
+
+# %% cellView="form" tags=["remove-input"]
+#@title Questions (run this cell)
+lsg.quiz([
+    {"q": "You batch 8 prefill-only requests of the same length into one forward pass. Compared with a single request, their TTFT is about…",
+     "options": ["the same", "2× longer", "8× longer"], "answer": 2,
+     "explain": "Prefill is compute-bound, so 8 prompts take about 8 times the arithmetic."},
+    {"q": "You batch 8 decode requests together. Compared with a single request, their TPOT is about…",
+     "options": ["the same", "2× longer", "8× longer"], "answer": 0,
+     "explain": "Decode is memory-bound. Each step loads the weights once and uses them for all 8 requests."},
+    {"q": "Why is batching decodes so effective?",
+     "options": ["It reduces the number of FLOPs per token",
+                 "All requests in the batch share each load of the weights from memory",
+                 "It makes the KV cache smaller"],
+     "answer": 1,
+     "explain": "The expensive part of a decode step is reading the weights; batching amortizes it over many requests."},
+    {"q": "With long conversations, what usually limits how many requests can decode together?",
+     "options": ["GPU FLOP/s", "GPU memory for the KV cache", "The number of CPU cores"],
+     "answer": 1,
+     "explain": "Every running request keeps its KV cache in GPU memory. Longer contexts mean fewer requests fit."},
+    {"q": "The arrival rate passes the system's capacity. Which metric grows without bound?",
+     "options": ["TPOT", "TTFT", "Both equally"], "answer": 1,
+     "explain": "The running batch is full, so TPOT stays flat. New requests wait in the queue, and their TTFT keeps growing."},
+    {"q": "Why does p99 TTFT rise before p50 TTFT as load increases?",
+     "options": ["Random arrivals come in bursts, and requests in a burst have to wait",
+                 "Long requests are always scheduled last",
+                 "The simulator adds random noise to p99"],
+     "answer": 0,
+     "explain": "Even below capacity, bursts briefly fill the batch. The unlucky requests in them form the tail."},
+    {"q": "At most 100 requests can run at once, and each takes 20 s. By Little's law, about what arrival rate can the system sustain?",
+     "options": ["0.2 req/s", "5 req/s", "20 req/s", "2,000 req/s"], "answer": 1,
+     "explain": "Max rate ≈ running requests ÷ time per request = 100 ÷ 20 s = 5 req/s."},
+    {"q": "What is goodput?",
+     "options": ["The peak throughput of the GPU",
+                 "The highest throughput at which the latency SLO is still met",
+                 "Throughput measured with a batch size of 1"],
+     "answer": 1,
+     "explain": "Raw capacity is not useful if latency targets are missed. Goodput counts only throughput that meets the SLO."},
+])
