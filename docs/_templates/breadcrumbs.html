@@ -1,0 +1,12 @@
+{%- extends "sphinx_rtd_theme/breadcrumbs.html" %}
+{#- On notebook pages, add "Open in Colab" / "Launch Binder" next to "Edit on GitHub". -#}
+{%- block breadcrumbs_aside %}
+  {%- if page_source_suffix == ".ipynb" %}
+    {%- set nb_path = "docs/" ~ pagename ~ ".ipynb" %}
+    <li class="wy-breadcrumbs-aside launch-buttons">
+      <a href="https://colab.research.google.com/github/{{ github_user }}/{{ github_repo }}/blob/{{ github_version }}/{{ nb_path }}" class="launch-btn colab">Open in Colab</a>
+      <a href="https://mybinder.org/v2/gh/{{ github_user }}/{{ github_repo }}/{{ github_version }}?labpath={{ nb_path }}" class="launch-btn binder">Launch Binder</a>
+    </li>
+  {%- endif %}
+  {{ super() }}
+{%- endblock %}

@@ -1,0 +1,6 @@
+#!/bin/bash
+# Bake Vidur-Agent and its predictor cache for the default model into the Binder
+# image, so a student's first simulation starts in seconds instead of minutes.
+set -euo pipefail
+export PYTHONPATH="$PWD/labs:${PYTHONPATH:-}"
+python -c "import vidur_lab as vl; vl.setup(); vl.simulate(num_requests=5)"

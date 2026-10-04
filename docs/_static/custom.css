@@ -1,0 +1,17 @@
+/* Light touch on top of sphinx_rtd_theme. */
+.wy-breadcrumbs-aside.launch-buttons { margin-left: .5em; }
+.launch-btn {
+  display: inline-block; margin-left: .4em; padding: 2px 9px;
+  border-radius: 3px; font-size: 90%; color: #fff !important; text-decoration: none;
+}
+.launch-btn.colab  { background: #e8710a; }
+.launch-btn.binder { background: #579aca; }
+.launch-btn:hover  { opacity: .85; }
+
+/* Notebook output: keep tables compact and scrollable on small screens. */
+div.cell_output table { font-size: 90%; }
+div.cell_output { overflow-x: auto; }
+
+/* "Try it" exercise boxes. */
+.admonition.exercise { border-left: 4px solid #2980b9; }
+.admonition.exercise > .admonition-title { background: #2980b9; }
