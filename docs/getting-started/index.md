@@ -2,9 +2,7 @@
 
 ## The simulator
 
-Each lab drives [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent), an
-extension of Microsoft's [Vidur](https://github.com/microsoft/vidur) LLM inference
-simulator (Agrawal et al., MLSys 2024). Given a model, a GPU type, a cluster
+Each lab drives an LLM inference simulator. Given a model, a GPU type, a cluster
 layout, a scheduler, and a workload, it replays the workload request by request
 and reports latency and throughput metrics, as a real serving system's logs would.
 
@@ -13,25 +11,26 @@ multiplies, attention, all-reduce, ...) would take on the target GPU, using mode
 fitted to measurements taken on real hardware. See
 {doc}`../reference/how-the-simulator-works`.
 
-## The `vidur_lab` helper
+## The `llm_systems_wo_gpus` package
 
-Vidur has hundreds of command-line flags. The labs use a small wrapper,
-[`labs/vidur_lab.py`](https://github.com/kwmaeng91/studying-llm-systems-without-gpus/blob/main/labs/vidur_lab.py),
+The simulator has hundreds of command-line flags. The labs use a small Python
+interface,
+[`labs/llm_systems_wo_gpus.py`](https://github.com/kwmaeng91/studying-llm-systems-without-gpus/blob/main/labs/llm_systems_wo_gpus.py),
 so a simulation is one function call:
 
 ```python
-import vidur_lab as vl
-vl.setup()                                   # one-time clone + install
+import llm_systems_wo_gpus as lsg
+lsg.setup()                                   # one-time clone + install
 
-r = vl.simulate(model="meta-llama/Llama-2-7b-hf", device="a100",
+r = lsg.simulate(model="meta-llama/Llama-2-7b-hf", device="a100",
                 qps=4, prefill_tokens=512, decode_tokens=128)
 r.summary()        # TTFT / TPOT / E2E percentiles, throughput
 r.requests         # one row per request (pandas DataFrame)
 
-vl.sweep("qps", [1, 2, 4, 8])                # one summary row per value
+lsg.sweep("qps", [1, 2, 4, 8])                # one summary row per value
 ```
 
-The full API is in {doc}`../reference/lab-api`.
+The full API is in {doc}`../reference/python-api`.
 
 ## Where to run
 

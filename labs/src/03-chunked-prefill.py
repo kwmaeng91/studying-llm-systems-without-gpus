@@ -38,13 +38,13 @@
 import os, sys, urllib.request
 sys.path.insert(0, os.path.abspath("../../labs"))
 try:
-    import vidur_lab as vl
+    import llm_systems_wo_gpus as lsg
 except ImportError:
     urllib.request.urlretrieve(
-        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/vidur_lab.py",
-        "vidur_lab.py")
-    import vidur_lab as vl
-vl.setup()
+        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/llm_systems_wo_gpus.py",
+        "llm_systems_wo_gpus.py")
+    import llm_systems_wo_gpus as lsg
+lsg.setup()
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -56,14 +56,14 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 #
 # 85% of requests are chat turns (256 tokens in, 256 out) and 15% are long-document
 # requests (3,800 tokens in, 32 out), arriving in random order.
-# `vl.make_trace` writes per-request lengths to a trace file that the simulator
+# `lsg.make_trace` writes per-request lengths to a trace file that the simulator
 # replays.
 
 # %%
 rng = np.random.default_rng(0)
 n = 300
 is_long = rng.random(n) < 0.15
-trace = vl.make_trace(prefill_tokens=np.where(is_long, 3800, 256),
+trace = lsg.make_trace(prefill_tokens=np.where(is_long, 3800, 256),
                       decode_tokens=np.where(is_long, 32, 256), n=n, name="mixed")
 pd.read_csv(trace).value_counts().rename("requests")
 
@@ -76,7 +76,7 @@ pd.read_csv(trace).value_counts().rename("requests")
 # %%
 chunks = [128, 256, 512, 1024, 2048, 4096]
 cols = ["TTFT p50 (ms)", "TTFT p99 (ms)", "TPOT p50 (ms)", "TPOT p99 (ms)", "throughput (tok/s)"]
-res = {q: vl.sweep("chunk_size", chunks, trace=trace, num_requests=n, qps=q) for q in (4, 8)}
+res = {q: lsg.sweep("chunk_size", chunks, trace=trace, num_requests=n, qps=q) for q in (4, 8)}
 res[8][cols]
 
 # %%
@@ -116,7 +116,7 @@ fig.tight_layout()
 
 # %%
 for c in (512, 4096):
-    r = vl.simulate(trace=trace, num_requests=n, qps=8, chunk_size=c)
+    r = lsg.simulate(trace=trace, num_requests=n, qps=8, chunk_size=c)
     kind = np.where(r.requests["request_num_prefill_tokens"] > 1000, "long-doc", "chat")
     print(f"chunk_size={c}")
     print((1e3 * r.tpot.groupby(kind).describe(percentiles=[.5, .99])[["50%", "99%"]])

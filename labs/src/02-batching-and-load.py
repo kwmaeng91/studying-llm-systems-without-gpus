@@ -33,13 +33,13 @@
 import os, sys, urllib.request
 sys.path.insert(0, os.path.abspath("../../labs"))
 try:
-    import vidur_lab as vl
+    import llm_systems_wo_gpus as lsg
 except ImportError:
     urllib.request.urlretrieve(
-        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/vidur_lab.py",
-        "vidur_lab.py")
-    import vidur_lab as vl
-vl.setup()
+        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/llm_systems_wo_gpus.py",
+        "llm_systems_wo_gpus.py")
+    import llm_systems_wo_gpus as lsg
+lsg.setup()
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -55,7 +55,7 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 
 # %%
 caps = [1, 2, 4, 8, 16, 32, 64, 128]
-offline = vl.sweep("batch_size_cap", caps, qps=None, num_requests=256)
+offline = lsg.sweep("batch_size_cap", caps, qps=None, num_requests=256)
 offline[["TPOT p50 (ms)", "throughput (tok/s)", "makespan (s)"]]
 
 # %%
@@ -92,7 +92,7 @@ fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(.5, 1.02));
 
 # %%
 loads = [1, 2, 4, 8, 12, 14, 16, 20, 24, 32]
-online = vl.sweep("qps", loads, num_requests=300)
+online = lsg.sweep("qps", loads, num_requests=300)
 online[["TTFT p50 (ms)", "TTFT p99 (ms)", "TPOT p50 (ms)", "queueing p50 (ms)", "throughput (tok/s)"]]
 
 # %%

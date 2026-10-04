@@ -56,5 +56,5 @@ Inside a `.py` source, prefix every markdown line with `# `.
 ## Keeping notebooks light
 
 - Every simulation should finish in seconds and use < 1 GB of RAM, so labs run on
-  free Colab/Binder. `vidur_lab` already shrinks Vidur's prediction grid for this.
-- Check that the model/GPU/TP combination you want exists with `vl.catalog()`.
+  free Colab/Binder. `llm_systems_wo_gpus` already shrinks the simulator's prediction grid for this.
+- Check that the model/GPU/TP combination you want exists with `lsg.catalog()`.

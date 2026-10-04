@@ -3,7 +3,7 @@
 :::{admonition} Status: planned
 :class: warning
 This lecture is an outline. The simulator features it needs are already
-available through `vl.simulate(num_replicas=..., global_scheduler=...)`.
+available through `lsg.simulate(num_replicas=..., global_scheduler=...)`.
 :::
 
 ## Motivation
@@ -17,7 +17,7 @@ KV-cache reuse are spread across them.
 1. **Linear scaling, in theory.** Throughput of *N* replicas vs. 1 under round-robin
    routing, and why p99 latency still improves faster than you might expect
    (statistical multiplexing).
-2. **Routing policies** available in Vidur-Agent via `global_scheduler`:
+2. **Routing policies** available in the simulator via `global_scheduler`:
 
    | Value | Policy |
    |---|---|
@@ -35,6 +35,6 @@ KV-cache reuse are spread across them.
 
 ```python
 for policy in ["round_robin", "lor", "lop"]:
-    print(policy, vl.simulate(num_replicas=4, qps=40, global_scheduler=policy,
+    print(policy, lsg.simulate(num_replicas=4, qps=40, global_scheduler=policy,
                               trace=mixed_trace).summary()["TTFT p99 (ms)"])
 ```

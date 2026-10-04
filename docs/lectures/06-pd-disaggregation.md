@@ -2,9 +2,9 @@
 
 :::{admonition} Status: planned
 :class: warning
-This lecture is an outline. Vidur-Agent supports PD disaggregation through
+This lecture is an outline. The simulator supports PD disaggregation through
 replica groups with `"role": "prefill"` / `"decode"`. The lab will pass such a
-config with `vl.simulate(replica_groups={...})`.
+config with `lsg.simulate(replica_groups={...})`.
 :::
 
 ## Motivation
@@ -19,7 +19,7 @@ a decode replica.
 
 1. **Interference-free decode.** TPOT p99 with and without disaggregation on the
    lecture 3 mixed workload.
-2. **The price: KV transfer.** Vidur-Agent models transfer time from the KV size
+2. **The price: KV transfer.** The simulator models transfer time from the KV size
    and the interconnect (`network_device`, `cross_node`). How large can a prompt
    get before transfer time shows up in TTFT?
 3. **Pool sizing.** For a fixed budget of 8 GPUs, sweep the prefill:decode split
@@ -41,5 +41,5 @@ pd_config = {
   ],
   "replica_groups_pools": [{"prefill": [0], "decode": [1], "cross_node": False}],
 }
-r = vl.simulate(replica_groups=pd_config, trace=mixed_trace, qps=8)
+r = lsg.simulate(replica_groups=pd_config, trace=mixed_trace, qps=8)
 ```

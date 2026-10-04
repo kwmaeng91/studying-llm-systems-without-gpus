@@ -1,13 +1,15 @@
-# `vidur_lab` API
+# Python API: `llm_systems_wo_gpus`
 
-The helper module used by every lab: [`labs/vidur_lab.py`](https://github.com/kwmaeng91/studying-llm-systems-without-gpus/blob/main/labs/vidur_lab.py).
-It only builds a `python -m vidur.main …` command line and parses the output, so
-everything here can also be done with the raw simulator CLI.
+The package every lab imports as `lsg`:
+[`labs/llm_systems_wo_gpus.py`](https://github.com/kwmaeng91/studying-llm-systems-without-gpus/blob/main/labs/llm_systems_wo_gpus.py).
+It builds the backend simulator's command line and parses its output, so
+everything here can also be done with the raw simulator CLI
+({doc}`simulator-knobs`).
 
 ## `setup()`
 
-Clones Vidur-Agent into `$VIDUR_HOME` (default `~/vidur-agent`) and installs any
-missing dependencies. It is safe to call repeatedly.
+Downloads the simulator into `$LSG_BACKEND_DIR` (default
+`~/.llm-systems-wo-gpus/backend`) and installs any missing dependencies. It is safe to call repeatedly.
 
 ## `simulate(**kwargs) → Result`
 
@@ -22,21 +24,21 @@ missing dependencies. It is safe to call repeatedly.
 | `num_requests` | `100` | requests to simulate |
 | `prefill_tokens`, `decode_tokens` | `512`, `128` | int (all requests identical) or a sequence per request |
 | `trace` | `None` | path to a trace CSV; overrides the two arguments above |
-| `scheduler` | `"vllm_v1"` | replica scheduler (only `vllm_v1` works in Vidur-Agent today) |
+| `scheduler` | `"vllm_v1"` | replica scheduler (only `vllm_v1` works today) |
 | `batch_size_cap` | `128` | max requests per batch |
 | `chunk_size` | `512` | token budget per step (chunked prefill) |
 | `global_scheduler` | `"round_robin"` | router policy across replicas |
 | `prefix_caching` | `False` | enable automatic prefix (KV) caching |
 | `replica_groups` | `None` | dict or JSON path for heterogeneous / PD-disaggregated clusters |
 | `seed` | `42` | random seed for arrivals |
-| `extra` | `None` | `{"--any_vidur_flag": value}` passed through verbatim |
+| `extra` | `None` | `{"--any_simulator_flag": value}` passed through verbatim |
 | `verbose` | `False` | print the command line and simulator log |
 
 ## `Result`
 
 | Attribute | Type | Description |
 |---|---|---|
-| `requests` | DataFrame | one row per request, every metric Vidur records (see below) |
+| `requests` | DataFrame | one row per request, every metric the simulator records (see below) |
 | `summary()` | Series | TTFT/TPOT p50/p99, E2E p50, queueing p50, throughput, makespan |
 | `ttft`, `tpot`, `e2e` | Series | per-request latencies in seconds |
 | `kv_cache_tokens` | int | KV-cache capacity of one replica, in tokens |

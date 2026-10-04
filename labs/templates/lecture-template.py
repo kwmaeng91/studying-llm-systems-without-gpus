@@ -25,13 +25,13 @@
 import os, sys, urllib.request
 sys.path.insert(0, os.path.abspath("../../labs"))
 try:
-    import vidur_lab as vl
+    import llm_systems_wo_gpus as lsg
 except ImportError:  # outside the course repo (e.g. Colab): fetch the helper
     urllib.request.urlretrieve(
-        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/vidur_lab.py",
-        "vidur_lab.py")
-    import vidur_lab as vl
-vl.setup()
+        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/llm_systems_wo_gpus.py",
+        "llm_systems_wo_gpus.py")
+    import llm_systems_wo_gpus as lsg
+lsg.setup()
 
 import matplotlib.pyplot as plt
 
@@ -41,7 +41,7 @@ import matplotlib.pyplot as plt
 # Explanation, then an experiment.
 
 # %%
-r = vl.simulate(qps=2, prefill_tokens=512, decode_tokens=128)
+r = lsg.simulate(qps=2, prefill_tokens=512, decode_tokens=128)
 r.summary()
 
 # %% [markdown]

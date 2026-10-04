@@ -1,7 +1,8 @@
 # LLM Systems Without GPUs
 
 A hands-on lecture series on LLM inference serving where every experiment runs on a
-CPU, using the [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) simulator.
+CPU. The backend simulator is [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent),
+built on Microsoft's [Vidur](https://github.com/microsoft/vidur).
 
 - **Read online:** https://studying-llm-systems-without-gpus.readthedocs.io *(after the RTD project is created)*
 - **Run a lab:** the "Open in Colab" / "Launch Binder" buttons on each lab page.
@@ -13,9 +14,9 @@ docs/                  Sphinx site (sphinx_rtd_theme + MyST-NB)
   lectures/*.ipynb     executed lab notebooks (generated; do not edit by hand)
   lectures/*.md        lectures without code
   getting-started/     how to run in Colab / Binder / locally
-  reference/           vidur_lab API, simulator flags, how Vidur works
+  reference/           Python API, simulator flags, how the simulator works
 labs/
-  vidur_lab.py         the helper every notebook imports
+  llm_systems_wo_gpus.py   the Python package every notebook imports
   src/*.py             lab sources (jupytext "percent" format), edit these
   templates/           starting point for a new lecture
   build_notebooks.py   src/*.py -> executed docs/lectures/*.ipynb
@@ -42,7 +43,7 @@ See `docs/reference/authoring.md` for adding a lecture.
 
 The GitHub location `kwmaeng91/studying-llm-systems-without-gpus` is used in
 `docs/conf.py` (Colab/Binder buttons) and in each lab's setup cell (where Colab
-downloads `vidur_lab.py` from). If the repo moves, update both:
+downloads `llm_systems_wo_gpus.py` from). If the repo moves, update both:
 
 ```bash
 grep -rl "kwmaeng91/studying-llm-systems-without-gpus" docs labs README.md

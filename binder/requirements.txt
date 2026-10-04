@@ -1,4 +1,4 @@
-# Everything a lab notebook needs (Vidur-Agent itself is cloned by vidur_lab.setup()).
+# Everything a lab notebook needs (the simulator itself is downloaded by llm_systems_wo_gpus.setup()).
 numpy<2
 pandas
 matplotlib

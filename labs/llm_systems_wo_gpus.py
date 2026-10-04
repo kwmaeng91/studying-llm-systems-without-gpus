@@ -1,15 +1,15 @@
-"""Thin, student-friendly wrapper around the Vidur-Agent simulator.
+"""Python interface to the course's LLM-serving simulator.
 
 Every lab notebook does::
 
-    import vidur_lab as vl
-    vl.setup()                       # clone + install Vidur-Agent once (Colab/Binder/local)
-    r = vl.simulate(qps=2, prefill_tokens=512, decode_tokens=128)
+    import llm_systems_wo_gpus as lsg
+    lsg.setup()                      # one-time install of the simulator (Colab/Binder/local)
+    r = lsg.simulate(qps=2, prefill_tokens=512, decode_tokens=128)
     r.summary()                      # TTFT / TPOT / E2E / throughput
     r.requests                       # per-request pandas DataFrame
 
-`simulate` only builds a `python -m vidur.main ...` command line, so anything it
-does not expose can still be passed through ``extra={"--flag": value}``.
+`simulate` only builds the backend simulator's command line, so any backend flag
+it does not expose can still be passed through ``extra={"--flag": value}``.
 """
 
 from __future__ import annotations
@@ -28,12 +28,18 @@ from pathlib import Path
 
 import pandas as pd
 
-VIDUR_REPO = "https://github.com/psu-paws/Vidur-Agent"
-VIDUR_HOME = Path(os.environ.get("VIDUR_HOME", Path.home() / "vidur-agent"))
-WORK_DIR = Path(os.environ.get("VIDUR_LAB_DIR", Path.home() / ".vidur-lab"))
+# Backend simulator: where it comes from, the subdirectory holding its code, and
+# the Python module to run. Everything backend-specific is confined to these lines
+# and the flag names in simulate().
+BACKEND_REPO = "https://github.com/psu-paws/Vidur-Agent"
+BACKEND_SUBDIR = "Vidur-Agent"
+BACKEND_MODULE = "vidur"
+
+WORK_DIR = Path(os.environ.get("LSG_WORK_DIR", Path.home() / ".llm-systems-wo-gpus"))
+BACKEND_DIR = Path(os.environ.get("LSG_BACKEND_DIR", WORK_DIR / "backend"))
 
 # Runtime deps of the simulator itself. We skip ray / streamlit / jupyterlab from
-# Vidur's pyproject: the simulator does not need them and they are slow to install.
+# the backend's pyproject: simulation does not need them and they are slow to install.
 _DEPS = [
     "numpy<2",
     "pandas",
@@ -49,7 +55,7 @@ _DEPS = [
     "kaleido==0.2.1",
 ]
 
-# Vidur pre-computes operator runtimes on a grid of (batch size, tokens, ...).
+# The simulator pre-computes operator runtimes on a grid of (batch size, tokens, ...).
 # Its defaults (600k tokens x batch 512) need >10 GB of RAM; this grid fits in
 # ~1 GB, trains in ~15 s per (model, device, TP) and covers every lab here.
 LITE_GRID = {
@@ -68,16 +74,16 @@ LITE_GRID = {
 _DEFAULT_NETWORK = {"a100": "a100_dgx", "h100": "h100_dgx", "a40": "a40_pairwise_nvlink"}
 
 
-def _vidur_dir() -> Path:
-    return VIDUR_HOME / "Vidur-Agent"
+def _backend_dir() -> Path:
+    return BACKEND_DIR / BACKEND_SUBDIR
 
 
 def setup(quiet: bool = True) -> Path:
-    """Make sure Vidur-Agent is cloned and its dependencies are importable."""
-    if not (_vidur_dir() / "vidur").exists():
-        print(f"Cloning Vidur-Agent into {VIDUR_HOME} (one-time, ~1 min) ...")
+    """Make sure the simulator is downloaded and its dependencies are importable."""
+    if not (_backend_dir() / BACKEND_MODULE).exists():
+        print(f"Downloading the simulator into {BACKEND_DIR} (one-time, ~1 min) ...")
         subprocess.run(
-            ["git", "clone", "--depth", "1", VIDUR_REPO, str(VIDUR_HOME)], check=True
+            ["git", "clone", "--depth", "1", BACKEND_REPO, str(BACKEND_DIR)], check=True
         )
     missing = [m for m in ("sklearn", "ddsketch", "fasteners", "randomname", "wandb")
                if importlib.util.find_spec(m) is None]
@@ -88,8 +94,8 @@ def setup(quiet: bool = True) -> Path:
             check=True,
         )
     WORK_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Vidur-Agent ready at {_vidur_dir()}")
-    return _vidur_dir()
+    print(f"Simulator ready at {BACKEND_DIR}")
+    return _backend_dir()
 
 
 def make_trace(prefill_tokens, decode_tokens, n: int, name: str | None = None) -> Path:
@@ -189,12 +195,12 @@ def simulate(
     """Run one simulation and return its per-request metrics.
 
     qps=None sends every request at t=0 (an offline / batch workload).
-    Only the ``vllm_v1`` replica scheduler works in Vidur-Agent today; its
+    Only the ``vllm_v1`` replica scheduler works in the simulator today; its
     ``chunk_size`` and ``batch_size_cap`` knobs emulate the older policies.
     """
     if network_device is None:
         network_device = _DEFAULT_NETWORK.get(device, f"{device}_dgx")
-    vdir = setup() if not (_vidur_dir() / "vidur").exists() else _vidur_dir()
+    backend = setup() if not (_backend_dir() / BACKEND_MODULE).exists() else _backend_dir()
     if trace is None:
         trace = make_trace(prefill_tokens, decode_tokens, num_requests)
 
@@ -249,7 +255,7 @@ def simulate(
     args["--metrics_config_store_plots"] = store_plots
     args["--metrics_config_store_utilization_metrics"] = False
 
-    cmd = [sys.executable, "-m", "vidur.main"]
+    cmd = [sys.executable, "-m", f"{BACKEND_MODULE}.main"]
     for k, v in args.items():
         if v is True:
             cmd.append(k)
@@ -259,12 +265,12 @@ def simulate(
             cmd += [k, str(v)]
 
     env = {**os.environ, "WANDB_MODE": "disabled", "OMP_NUM_THREADS": "2"}
-    proc = subprocess.run(cmd, cwd=vdir, env=env, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=backend, env=env, capture_output=True, text=True)
     if verbose or proc.returncode != 0:
         print(" ".join(cmd))
         print(proc.stdout[-4000:], proc.stderr[-4000:])
     if proc.returncode != 0:
-        raise RuntimeError("Vidur simulation failed (see log above)")
+        raise RuntimeError("Simulation failed (see log above)")
 
     csv = glob.glob(str(out_dir / "**" / "request_metrics.csv"), recursive=True)[0]
     cfg = {k.lstrip("-"): v for k, v in args.items()}
@@ -285,11 +291,11 @@ def sweep(param: str, values, **kwargs) -> pd.DataFrame:
 def catalog() -> pd.DataFrame:
     """Which (device, model, TP) combinations have profiling data, and their limits.
 
-    Vidur's runtime predictors are random forests: they interpolate well inside the
+    The simulator's runtime predictors are random forests: they interpolate well inside the
     profiled range but cannot extrapolate past ``max_context`` or ``max_batch``.
     """
     rows = []
-    root = _vidur_dir() / "data" / "profiling" / "compute"
+    root = _backend_dir() / "data" / "profiling" / "compute"
     for f in sorted(root.glob("*/*/*/attention.csv")):
         d = pd.read_csv(f, usecols=["kv_cache_size", "batch_size", "num_tensor_parallel_workers"])
         rows.append({

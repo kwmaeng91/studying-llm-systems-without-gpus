@@ -19,7 +19,7 @@
 # **Tensor parallelism (TP)** splits every weight matrix across $k$ GPUs. Each GPU
 # then reads $1/k$ of the weights per step, so memory-bound decode gets up to
 # $k\times$ faster, but the GPUs must **all-reduce** their partial results twice per
-# transformer layer. Vidur models both effects from profiled kernel and NCCL
+# transformer layer. The simulator models both effects from profiled kernel and NCCL
 # runtimes.
 #
 # :::{admonition} Learning goals
@@ -35,13 +35,13 @@
 import os, sys, urllib.request
 sys.path.insert(0, os.path.abspath("../../labs"))
 try:
-    import vidur_lab as vl
+    import llm_systems_wo_gpus as lsg
 except ImportError:
     urllib.request.urlretrieve(
-        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/vidur_lab.py",
-        "vidur_lab.py")
-    import vidur_lab as vl
-vl.setup()
+        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/llm_systems_wo_gpus.py",
+        "llm_systems_wo_gpus.py")
+    import llm_systems_wo_gpus as lsg
+lsg.setup()
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -50,11 +50,11 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 # %% [markdown]
 # ## What can we simulate?
 #
-# Vidur can only simulate (model, GPU, TP) combinations that someone profiled on
-# real hardware. `vl.catalog()` lists them:
+# The simulator can only simulate (model, GPU, TP) combinations that someone profiled on
+# real hardware. `lsg.catalog()` lists them:
 
 # %%
-vl.catalog()
+lsg.catalog()
 
 # %% [markdown]
 # ## Sweeping GPU type and TP degree
@@ -68,8 +68,8 @@ vl.catalog()
 
 # %%
 def characterize(model, device, tp):
-    lo = vl.simulate(model=model, device=device, tensor_parallel=tp, qps=0.1, num_requests=10)
-    hi = vl.simulate(model=model, device=device, tensor_parallel=tp, qps=None, num_requests=256)
+    lo = lsg.simulate(model=model, device=device, tensor_parallel=tp, qps=0.1, num_requests=10)
+    hi = lsg.simulate(model=model, device=device, tensor_parallel=tp, qps=None, num_requests=256)
     s_lo, s_hi = lo.summary(), hi.summary()
     return {"model": model.split("/")[-1], "GPU": device, "TP": tp,
             "TTFT (ms)": s_lo["TTFT p50 (ms)"], "TPOT (ms)": s_lo["TPOT p50 (ms)"],

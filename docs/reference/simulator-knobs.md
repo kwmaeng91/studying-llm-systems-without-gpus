@@ -1,7 +1,8 @@
 # Simulator Configuration
 
-Vidur-Agent is configured entirely through command-line flags of `python -m vidur.main`
-(run it with `-h` for all ~300 of them). Flags are grouped by the config object
+The backend simulator is configured entirely through command-line flags (run
+`python -m vidur.main -h` inside the simulator's directory for all ~300 of them).
+`lsg.simulate(extra={...})` passes any of them through. Flags are grouped by the config object
 they set. The tables below list the ones the course uses, with their defaults.
 
 ## Cluster and replica
@@ -21,7 +22,7 @@ they set. The tables below list the ones the course uses, with their defaults.
 | Flag | Default | Description |
 |---|---|---|
 | `--synthetic_request_generator_config_num_requests` | `128` | number of requests |
-| `--length_generator_config_type` | `fixed` | `trace` replays a CSV of lengths (use this; `fixed` is broken in Vidur-Agent) |
+| `--length_generator_config_type` | `fixed` | `trace` replays a CSV of lengths (use this; `fixed` is broken) |
 | `--trace_request_length_generator_config_trace_file` | — | CSV with `num_prefill_tokens,num_decode_tokens[,session_id,turn_id,...]` |
 | `--interval_generator_config_type` | `poisson` | arrival process: `poisson`, `gamma`, `static`, `uniform`, `trace` |
 | `--poisson_request_interval_generator_config_qps` | `0.5` | arrival rate |
@@ -30,8 +31,8 @@ they set. The tables below list the ones the course uses, with their defaults.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--replica_scheduler_config_type` | `sarathi` | use `vllm_v1`; the other schedulers fail in Vidur-Agent |
-| `--vllm_v1_scheduler_config_chunk_size` | `4096` | token budget per iteration (chunked prefill); `vidur_lab` uses 512 |
+| `--replica_scheduler_config_type` | `sarathi` | use `vllm_v1`; the other schedulers fail |
+| `--vllm_v1_scheduler_config_chunk_size` | `4096` | token budget per iteration (chunked prefill); `llm_systems_wo_gpus` uses 512 |
 | `--vllm_v1_scheduler_config_batch_size_cap` | `128` | max requests per iteration |
 | `--vllm_v1_scheduler_config_session_priority` | off | prioritize earlier sessions (agentic workloads) |
 | `--vllm_v1_scheduler_config_sjf_priority` | off | shortest-job-first ordering |
@@ -51,8 +52,8 @@ they set. The tables below list the ones the course uses, with their defaults.
 
 ## Execution-time predictor
 
-These control how Vidur fits its runtime models. The course overrides the
-prediction grid to keep memory under 1 GB (`LITE_GRID` in `vidur_lab.py`).
+These control how the simulator fits its runtime models. The course overrides the
+prediction grid to keep memory under 1 GB (`LITE_GRID` in `llm_systems_wo_gpus.py`).
 
 | Flag (prefix `--random_forest_execution_time_predictor_config_`) | Upstream default | Course value |
 |---|---|---|
@@ -61,7 +62,7 @@ prediction grid to keep memory under 1 GB (`LITE_GRID` in `vidur_lab.py`).
 | `prediction_max_prefill_chunk_size` | `4096` | `4096` |
 | `k_fold_cv_splits` | `10` | `2` |
 | `num_estimators` / `max_depth` / `min_samples_split` | grid search | `50` / `16` / `2` |
-| `cache_dir` | `cache` | `~/.vidur-lab/predictor_cache` |
+| `cache_dir` | `cache` | `~/.llm-systems-wo-gpus/predictor_cache` |
 
 ## Replica groups
 
@@ -92,6 +93,5 @@ GPU types, mixed models, or prefill/decode pools.
 ```
 
 `replica_groups_pools` pairs prefill groups with the decode groups they may hand
-requests to. `cross_node` selects the inter-node link for the KV transfer. The
-example configs from the paper are in
-[`data/replica_groups_configs/`](https://github.com/psu-paws/Vidur-Agent/tree/main/Vidur-Agent/data/replica_groups_configs).
+requests to. `cross_node` selects the inter-node link for the KV transfer. Example
+configs are in the simulator's `data/replica_groups_configs/` directory.

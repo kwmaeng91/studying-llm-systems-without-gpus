@@ -2,7 +2,7 @@
 
 :::{admonition} Status: planned
 :class: warning
-This lecture is an outline. It builds on the main contribution of Vidur-Agent:
+This lecture is an outline. It builds on the main contribution of the simulator:
 replaying real multi-turn agent traces
 ([GAIATrace](https://github.com/psu-paws/Vidur-Agent/tree/main/GAIATrace)).
 :::

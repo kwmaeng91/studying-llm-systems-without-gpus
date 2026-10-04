@@ -41,20 +41,20 @@
 # ## Setup
 #
 # This cell works unchanged on Colab, Binder and a local install. The first run
-# clones [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) and installs its
+# clones the simulator and installs its
 # dependencies, which takes about a minute.
 
 # %%
 import os, sys, urllib.request
 sys.path.insert(0, os.path.abspath("../../labs"))
 try:
-    import vidur_lab as vl
+    import llm_systems_wo_gpus as lsg
 except ImportError:  # running outside the course repo (e.g. Colab): fetch the helper
     urllib.request.urlretrieve(
-        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/vidur_lab.py",
-        "vidur_lab.py")
-    import vidur_lab as vl
-vl.setup()
+        "https://raw.githubusercontent.com/kwmaeng91/studying-llm-systems-without-gpus/main/labs/llm_systems_wo_gpus.py",
+        "llm_systems_wo_gpus.py")
+    import llm_systems_wo_gpus as lsg
+lsg.setup()
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -67,16 +67,16 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 # `qps=0.05` means a new request arrives every 20 s on average, so they never
 # overlap and there is no queueing.
 #
-# The first call for a given (model, GPU, parallelism) takes ~15 s because Vidur
+# The first call for a given (model, GPU, parallelism) takes ~15 s because the simulator
 # fits its runtime predictors from profiling data. Later calls reuse the cache
 # and finish in a few seconds.
 
 # %%
-r = vl.simulate(qps=0.05, num_requests=20, prefill_tokens=512, decode_tokens=128)
+r = lsg.simulate(qps=0.05, num_requests=20, prefill_tokens=512, decode_tokens=128)
 r.summary()
 
 # %% [markdown]
-# `r.requests` holds one row per request with every metric Vidur records:
+# `r.requests` holds one row per request with every metric the simulator records:
 
 # %%
 r.requests[["request_num_prefill_tokens", "request_num_decode_tokens",
@@ -99,14 +99,14 @@ print(f"TTFT + 127*TPOT = {s['TTFT p50 (ms)'] + 127 * s['TPOT p50 (ms)']:.0f} ms
 
 :::{note}
 Llama-2-7B has a 4,096-token context window, and that is also as far as it was
-profiled. Vidur predicts kernel runtimes by **interpolating** profiled
+profiled. The simulator predicts kernel runtimes by **interpolating** profiled
 measurements, so it cannot tell you what happens past that range. If you ask it
-to, it silently returns the value at the edge. `vl.catalog()` lists the profiled
+to, it silently returns the value at the edge. `lsg.catalog()` lists the profiled
 limits of every model and GPU.
 :::
 
 # %%
-prompt = vl.sweep("prefill_tokens", [128, 256, 512, 1024, 1536, 2048, 3072, 4000],
+prompt = lsg.sweep("prefill_tokens", [128, 256, 512, 1024, 1536, 2048, 3072, 4000],
                   decode_tokens=32, qps=0.05, num_requests=10)
 prompt[["TTFT p50 (ms)", "TPOT p50 (ms)"]]
 
@@ -151,7 +151,7 @@ print(f"Roofline TPOT bound: {1e3 * weights_bytes / a100_bw:.1f} ms;"
 # %% [markdown]
 # The simulated TPOT is within a factor of ~1.5 of the bound. The gap comes from
 # kernel launch overheads, attention over the KV cache, and the fact that real
-# kernels do not reach peak bandwidth. Vidur's numbers come from **profiled** kernel
+# kernels do not reach peak bandwidth. The simulator's numbers come from **profiled** kernel
 # runtimes on real A100s, so they include these effects.
 #
 # ## Decode scales with the output
@@ -160,7 +160,7 @@ print(f"Roofline TPOT bound: {1e3 * weights_bytes / a100_bw:.1f} ms;"
 # tokens, and its slope is the TPOT.
 
 # %%
-out = vl.sweep("decode_tokens", [16, 64, 128, 256, 512, 1024],
+out = lsg.sweep("decode_tokens", [16, 64, 128, 256, 512, 1024],
                prefill_tokens=512, qps=0.05, num_requests=10)
 plt.plot(out.index, out["E2E p50 (s)"], "o-")
 plt.xlabel("output tokens"); plt.ylabel("E2E latency (s)")

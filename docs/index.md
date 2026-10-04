@@ -2,10 +2,11 @@
 
 **A hands-on lecture series on LLM serving systems that you can follow on a laptop.**
 
-The labs use [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent), a
-**CPU-only simulator** of LLM inference clusters. It predicts each operation's
-runtime from profiles measured on real A100 and H100 GPUs, so you can experiment
-with hardware you don't have.
+The labs run on a **CPU-only simulator** of LLM inference clusters. It predicts
+each operation's runtime from profiles measured on real A100 and H100 GPUs, so you
+can experiment with hardware you don't have. The simulator is
+[Vidur-Agent](https://github.com/psu-paws/Vidur-Agent), which extends Microsoft's
+[Vidur](https://github.com/microsoft/vidur) (Agrawal et al., MLSys 2024).
 
 Each lecture pairs an explanation with a runnable notebook. Click
 **Open in Colab** or **Launch Binder** at the top of any lab page to run it in
@@ -70,7 +71,7 @@ lectures/*
 :hidden:
 :caption: Reference
 
-reference/lab-api
+reference/python-api
 reference/simulator-knobs
 reference/how-the-simulator-works
 reference/authoring
