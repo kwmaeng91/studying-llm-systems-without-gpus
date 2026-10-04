@@ -23,25 +23,25 @@ your browser, with nothing to install. Start with {doc}`lectures/00-getting-read
   - {doc}`lectures/00-getting-ready`
   - prerequisites and background reading
 * - 1
-  - **[TEMP]** {doc}`lectures/01-prefill-and-decode`
+  - {doc}`lectures/01-prefill-and-decode`
   - TTFT/TPOT; why prefill is compute-bound and decode is memory-bound
 * - 2
-  - **[TEMP]** {doc}`lectures/02-batching-and-load`
+  - {doc}`lectures/02-batching-and-load`
   - batching, throughput–latency, goodput
 * - 3
-  - **[TEMP]** {doc}`lectures/03-chunked-prefill`
+  - {doc}`lectures/03-chunked-prefill`
   - chunked prefill, prefill–decode interference
 * - 4
-  - **[TEMP]** {doc}`lectures/04-hardware-and-parallelism`
+  - {doc}`lectures/04-hardware-and-parallelism`
   - GPU type, tensor parallelism
 * - 5
-  - **[TEMP]** {doc}`lectures/05-cluster-routing`
+  - {doc}`lectures/05-cluster-routing`
   - replicas and routing (outline)
 * - 6
-  - **[TEMP]** {doc}`lectures/06-pd-disaggregation`
+  - {doc}`lectures/06-pd-disaggregation`
   - prefill–decode disaggregation (outline)
 * - 7
-  - **[TEMP]** {doc}`lectures/07-agentic-workloads`
+  - {doc}`lectures/07-agentic-workloads`
   - agentic workloads (outline)
 ```
 

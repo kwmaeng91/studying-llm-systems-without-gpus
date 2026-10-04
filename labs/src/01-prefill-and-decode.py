@@ -131,8 +131,12 @@ prompt[["TTFT p50 (ms)", "TPOT p50 (ms)"]]
 fig, ax = plt.subplots(1, 2, figsize=(9, 3.2))
 ax[0].plot(prompt.index, prompt["TTFT p50 (ms)"], "o-")
 ax[0].set(xlabel="prompt tokens", ylabel="TTFT (ms)", title="Prefill")
-ax[1].plot(prompt.index, prompt["TPOT p50 (ms)"], "o-", color="C1")
-ax[1].set(xlabel="prompt tokens", ylabel="TPOT (ms)", title="Decode", ylim=(0, None))
+ax[1].plot(prompt.index, prompt["TPOT p50 (ms)"], "o-", color="C1", label="simulated")
+ax[1].axhline(32.8e9 * 2 / 2 / 2.0e12 * 1e3, ls="--", color="gray",
+              label="memory-bandwidth limit (see below)")
+ax[1].set(xlabel="prompt tokens", ylabel="TPOT (ms)", title="Decode",
+          ylim=(0, 1.5 * prompt["TPOT p50 (ms)"].max()))
+ax[1].legend(loc="lower right", fontsize=8)
 fig.tight_layout()
 
 # %% [markdown]
