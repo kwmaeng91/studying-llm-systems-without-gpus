@@ -48,10 +48,28 @@ A note.
 Inline math $x^2$, display math:
 $$ \text{TPOT} \approx \frac{\text{weight bytes}}{\text{bandwidth}} $$
 
-Cross-reference another page: {doc}`00-example`
+Cross-reference another page: {doc}`01-prefill-and-decode`
 ````
 
 Inside a `.py` source, prefix every markdown line with `# `.
+
+## Check-your-understanding questions
+
+End a lecture with `lsg.quiz(...)`. It renders clickable multiple-choice questions
+with instant feedback, in Jupyter, in Colab, and on this website:
+
+```python
+# %% cellView="form" tags=["remove-input"]
+#@title Questions (run this cell)
+lsg.quiz([
+    {"q": "Is prefill compute-bound or memory-bound?",
+     "options": ["Compute-bound", "Memory-bound"], "answer": 0,
+     "explain": "Each weight is reused for every prompt token."},
+])
+```
+
+The `remove-input` tag hides the code (and so the answers) on the website, and
+`cellView="form"` folds it away in Colab. Strings may contain HTML, e.g. `<code>`.
 
 ## Keeping notebooks light
 

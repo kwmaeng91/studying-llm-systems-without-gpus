@@ -69,6 +69,12 @@ indexed by `param`.
 
 Writes a two-column trace CSV that `simulate(trace=...)` can replay.
 
+## `quiz(questions) → HTML`
+
+Renders clickable multiple-choice questions with instant feedback. Each question
+is `{"q": str, "options": [str, ...], "answer": int, "explain": str}`, where
+`answer` is the 0-based index of the correct option. See {doc}`authoring`.
+
 ## `catalog() → DataFrame`
 
 Every (device, model) pair with profiling data, its supported TP degrees, and

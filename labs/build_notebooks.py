@@ -23,7 +23,7 @@ def build(src: Path) -> None:
     nb = jupytext.read(src)
     dst = OUT / (src.stem + ".ipynb")
     t = time.time()
-    NotebookClient(nb, timeout=1800, kernel_name="python3",
+    NotebookClient(nb, timeout=1800, kernel_name="python3", record_timing=False,
                    resources={"metadata": {"path": str(OUT)}}).execute()
     jupytext.write(nb, dst)
     print(f"{src.name} -> {dst.relative_to(ROOT)}  ({time.time() - t:.0f}s)")

@@ -312,3 +312,59 @@ def catalog() -> pd.DataFrame:
             "max_batch": int(d["batch_size"].max()),
         })
     return pd.DataFrame(rows)
+
+
+_QUIZ_CSS = """
+.lsg-quiz{font-family:inherit;max-width:46em}
+.lsg-q{border:1px solid rgba(128,128,128,.35);border-radius:6px;padding:.7em .9em;margin:.7em 0}
+.lsg-q p{margin:.1em 0 .5em;font-weight:600}
+.lsg-opt{display:block;width:100%;text-align:left;margin:.25em 0;padding:.4em .7em;cursor:pointer;
+  border:1px solid rgba(128,128,128,.45);border-radius:4px;background:transparent;color:inherit;font:inherit}
+.lsg-opt:hover{border-color:#2980b9}
+.lsg-opt.right{border-color:#27ae60;background:rgba(39,174,96,.15)}
+.lsg-opt.wrong{border-color:#c0392b;background:rgba(192,57,43,.12)}
+.lsg-fb{display:none;margin-top:.5em;padding:.45em .7em;border-left:3px solid #2980b9;font-size:95%}
+.lsg-score{font-size:90%;opacity:.8}
+"""
+
+
+def quiz(questions: list[dict]):
+    """Render clickable multiple-choice questions with instant feedback.
+
+    Each question is ``{"q": str, "options": [str, ...], "answer": int, "explain": str}``
+    (``answer`` is the 0-based index of the correct option). Strings may contain
+    HTML such as ``<code>``. The output is self-contained HTML+JS, so it works in
+    Jupyter, Colab, and on the rendered website (where the saved output is shown).
+    """
+    import html
+    import uuid
+    from IPython.display import HTML
+
+    qid = "lsg" + uuid.uuid4().hex[:8]
+    parts = [f'<style>{_QUIZ_CSS}</style><div class="lsg-quiz" id="{qid}">']
+    for i, q in enumerate(questions):
+        parts.append(f'<div class="lsg-q" data-answer="{int(q["answer"])}"><p>{i + 1}. {q["q"]}</p>')
+        for j, opt in enumerate(q["options"]):
+            parts.append(f'<button class="lsg-opt" data-i="{j}">{opt}</button>')
+        parts.append(f'<div class="lsg-fb" data-explain="{html.escape(q.get("explain", ""), quote=True)}"></div></div>')
+    parts.append(f'<div class="lsg-score"></div></div>')
+    parts.append(f"""<script>(function(){{
+  var root=document.getElementById("{qid}"); if(!root) return;
+  var total=root.querySelectorAll(".lsg-q").length, done=0, right=0;
+  root.querySelectorAll(".lsg-q").forEach(function(q){{
+    var ans=+q.dataset.answer, fb=q.querySelector(".lsg-fb"), answered=false;
+    q.querySelectorAll(".lsg-opt").forEach(function(b){{
+      b.addEventListener("click",function(){{
+        var ok=(+b.dataset.i===ans);
+        q.querySelectorAll(".lsg-opt").forEach(function(o){{o.classList.remove("right","wrong");}});
+        b.classList.add(ok?"right":"wrong");
+        if(ok) q.querySelectorAll(".lsg-opt")[ans].classList.add("right");
+        fb.style.display="block";
+        fb.innerHTML=(ok?"<b>Correct.</b> ":"<b>Not quite &mdash; try again.</b> ")+(ok?fb.dataset.explain:"");
+        if(!answered){{answered=true; done++; if(ok) right++;
+          root.querySelector(".lsg-score").textContent="First-try score: "+right+" / "+done+(done<total?" (answered "+done+" of "+total+")":"");}}
+      }});
+    }});
+  }});
+}})();</script>""")
+    return HTML("".join(parts))

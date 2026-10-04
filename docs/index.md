@@ -10,7 +10,7 @@ can experiment with hardware you don't have. The simulator is
 
 Each lecture pairs an explanation with a runnable notebook. Click
 **Open in Colab** or **Launch Binder** at the top of any lab page to run it in
-your browser, with nothing to install. Start with {doc}`lectures/00-example`.
+your browser, with nothing to install. Start with {doc}`lectures/00-getting-ready`.
 
 ```{list-table}
 :header-rows: 1
@@ -20,11 +20,11 @@ your browser, with nothing to install. Start with {doc}`lectures/00-example`.
   - Lecture
   - Topics
 * - 0
-  - {doc}`lectures/00-example`
-  - check your setup; run a first simulation
+  - {doc}`lectures/00-getting-ready`
+  - prerequisites and background reading
 * - 1
-  - **[TEMP]** {doc}`lectures/01-anatomy-of-a-request`
-  - prefill vs. decode, TTFT/TPOT
+  - **[TEMP]** {doc}`lectures/01-prefill-and-decode`
+  - TTFT/TPOT; why prefill is compute-bound and decode is memory-bound
 * - 2
   - **[TEMP]** {doc}`lectures/02-batching-and-load`
   - batching, throughput–latency, goodput

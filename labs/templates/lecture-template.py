@@ -45,10 +45,13 @@ r = lsg.simulate(qps=2, prefill_tokens=512, decode_tokens=128)
 r.summary()
 
 # %% [markdown]
-# ## Exercises
+# ## Check your understanding
 #
-# :::{admonition} Try it
-# :class: exercise
-# 1. First exercise.
-# 2. Second exercise.
-# :::
+# Click an answer to check it. Wrong answers can be retried.
+
+# %% cellView="form" tags=["remove-input"]
+#@title Questions (run this cell)
+lsg.quiz([
+    {"q": "Question text?", "options": ["Option A", "Option B"], "answer": 0,
+     "explain": "Why A is right."},
+])
