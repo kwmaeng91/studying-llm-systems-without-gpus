@@ -1,5 +1,7 @@
 # How This Course Works
 
+By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+
 ## The simulator
 
 Each lab drives an LLM inference simulator. Given a model, a GPU type, a cluster

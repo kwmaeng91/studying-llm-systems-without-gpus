@@ -1,5 +1,7 @@
 # Run Locally
 
+By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+
 Any Linux, macOS, or Windows (WSL2) machine with **Python 3.10–3.12**, **git**, and
 **4 GB of RAM** is enough.
 

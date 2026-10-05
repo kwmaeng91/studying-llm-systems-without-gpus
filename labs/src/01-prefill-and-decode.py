@@ -310,6 +310,33 @@ fig.tight_layout()
 # Decode leaves the GPU's math units almost idle. Lecture 2 shows how serving
 # systems put them to work by **batching** many requests together.
 #
+# ## Exercises
+#
+# :::{admonition} Try it
+# :class: exercise
+# Each exercise asks you to change code above and rerun it. Write down your
+# prediction *before* you run.
+#
+# 1. **More GPUs.** Change `SYSTEM` to `tensor_parallel=4` and rerun the cells from
+#    "Prefill scales with the prompt" through "Decode is memory-bound" (also set
+#    `n_gpus = 4` in the bound calculations). With twice the GPUs, what do you
+#    expect for TTFT and for TPOT? Which phase falls further short of your
+#    prediction, and why? (Hint: the GPUs must exchange partial results in every
+#    layer, and a decode step has little work to hide that behind.)
+# 2. **A faster GPU.** Qwen2.5-32B was profiled only on A100s, so switch to a model
+#    that fits on one GPU: `dict(model="meta-llama/Meta-Llama-3-8B", device="a100",
+#    tensor_parallel=1)`. Simulate one request with a 4,096-token prompt and 128
+#    output tokens, then change `device` to `"h100"` and rerun. An H100 has about
+#    3.2× the FLOP/s of an A100 (989 vs. 312 TFLOP/s) but only about 1.7× the
+#    memory bandwidth (3.35 vs. 2.0 TB/s). Predict how much TTFT and TPOT improve,
+#    then check.
+# 3. **When does prefill win?** In "Where does the time go?", find the prompt
+#    length at which prefill and decode take equal time for a 64-token answer.
+#    Estimate it first from the ~0.2 ms per prompt token and ~39 ms per output
+#    token measured above, then change the grid in the code to check your estimate.
+#    (Remember the limit of 16,384 tokens per request.)
+# :::
+#
 # ## Check your understanding
 #
 # Click an answer to check it. Wrong answers can be retried.

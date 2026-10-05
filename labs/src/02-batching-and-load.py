@@ -240,6 +240,28 @@ print(f"Goodput: {ok.index.max()} req/s = {ok['throughput (tok/s)'].max():.0f} o
 #
 # The next lecture answers this question.
 #
+# ## Exercises
+#
+# :::{admonition} Try it
+# :class: exercise
+# Each exercise asks you to change code above and rerun it. Write down your
+# prediction *before* you run.
+#
+# 1. **Shorter prompts.** In "Batching prefills", change the prompt length from
+#    512 to 128 tokens (both in `prefill_tokens=` and in the throughput formula) and
+#    rerun. Does batching prefills help more or less than before? Use what lecture 1
+#    said about prefill being compute-bound to explain why.
+# 2. **Where is the knee?** At most 128 requests decode at once (the scheduler's
+#    batch-size cap), and each request needs `decode_tokens` steps of about one TPOT.
+#    From this, estimate the highest arrival rate the system can sustain with
+#    256-token outputs, and compare it with the knee in the load sweep. Then predict
+#    the knee, and check it by rerunning the sweep, for (a) `decode_tokens=128`, and
+#    (b) `batch_size_cap=64` (an argument of `lsg.sweep` and `lsg.simulate`).
+# 3. **A stricter SLO.** In "Goodput", tighten the TPOT target from 50 ms to 40 ms
+#    and rerun. What happens to the goodput, and why does a 10 ms change in the
+#    target matter so much? Look at how TPOT p99 grows with the load.
+# :::
+#
 # ## Check your understanding
 #
 # Click an answer to check it. Wrong answers can be retried.

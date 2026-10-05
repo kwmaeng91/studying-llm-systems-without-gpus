@@ -545,7 +545,7 @@ for a, (c, color) in zip(ax, ((4096, "C3"), (512, "C2"))):
     a.set(xlabel="output token", title=f"chunk_size={c}", ylim=(0, 950))
     print(f"chunk_size={c}: TPOT {tpot:.0f} ms, longest gap {gaps.max():.0f} ms, "
           f"{(gaps > 500).sum()} gaps longer than 0.5 s")
-ax[0].set_ylabel("time before this token (ms)")
+ax[0].set_ylabel("time (ms)")
 fig.suptitle(f"The same chat user (request {user}), token by token", y=1.0)
 fig.tight_layout()
 

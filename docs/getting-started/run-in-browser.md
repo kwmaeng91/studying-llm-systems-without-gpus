@@ -1,5 +1,7 @@
 # Run in Your Browser
 
+By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+
 Every lab page has two buttons at the top right:
 
 <span class="launch-btn colab">Open in Colab</span> <span class="launch-btn binder">Launch Binder</span>
