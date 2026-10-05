@@ -30,10 +30,3 @@ and the predictor cache (~15 s per model/GPU combination) is rebuilt.
 Binder is free and needs no login, but launches can take several minutes when the
 image has to be rebuilt, and idle sessions shut down after ~10 minutes. **Download
 your notebook** (*File → Download*) before you leave.
-
-## Why not run entirely in the browser (WebAssembly)?
-
-We looked at [JupyterLite](https://jupyterlite.readthedocs.io/)/Pyodide. The simulator
-runs as a subprocess, reads ~600 MB of profiling data, and fits scikit-learn
-models on startup, none of which fits well into a browser tab today. Colab
-and Binder give the same "click and run" experience with a real Python kernel.
