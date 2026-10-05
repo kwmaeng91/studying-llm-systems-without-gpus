@@ -1,4 +1,4 @@
-# Getting Ready for the Lecture
+# 0. Getting Ready for the Lecture
 
 This series assumes some background in Python, in how transformer language models
 work, and in what limits a GPU's speed. You don't need to be an expert in any of
