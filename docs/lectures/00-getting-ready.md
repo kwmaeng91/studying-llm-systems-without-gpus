@@ -32,7 +32,7 @@ Parameters (weights)
 Layer
 : Transformers are a stack of identical layers (Qwen2.5-32B has 64). Each layer
   has an **attention** block, which lets each token look at earlier tokens, and an
-  **MLP** (feed-forward) block, which transforms each token on its own.
+  **MLP** (also called a feed-forward network, or *FFN*) block, which transforms each token on its own.
 
 ### Running the model
 
@@ -53,13 +53,12 @@ Autoregressive generation
   run the model again. A 100-token answer takes 100 steps.
 
 KV cache
-: The attention **keys** and **values** of every token so far, kept in GPU memory
-  so they are not recomputed at every step.
+: The attention **keys** and **values** of every token processed so far, stored and reused across steps so that they are not recomputed at every step.
 
 Prefill and decode
 : The two phases of handling a request. *Prefill* processes the whole prompt in
   one forward pass and fills the KV cache. *Decode* then generates the output one
-  token per step. Lecture 1 is about the difference.
+  token per step. Lecture 1 is about their differences.
 
 Request
 : One prompt sent to the serving system, together with the response it gets back.
@@ -73,12 +72,12 @@ Batch
 GPU
 : The accelerator that runs the model, for example an NVIDIA A100 or H100.
 
-FLOP and FLOP/s
-: A FLOP is one floating-point operation (an add or a multiply). FLOP/s is how
-  many a chip can do per second. An A100 peaks at 312 *tera*FLOP/s (312 × 10¹²).
+FLOP and FLOP/s (FLOPs)
+: A FLOP is one floating-point operation (an add or a multiply). FLOP/s (also often written as FLOPs for simplicity) is how
+  many FLOP can be done per second. An A100 peaks at 312 *tera*FLOP/s (312 × 10¹²).
 
 HBM and memory bandwidth
-: HBM (high-bandwidth memory) is the GPU's main memory, which holds the weights
+: HBM (high-bandwidth memory) is the GPU's main memory (well, at least for expensive ones like A100 or H100), which holds the weights
   and the KV cache. Its *bandwidth*, in bytes per second, is how fast data can
   move between HBM and the compute units.
 
@@ -117,20 +116,17 @@ SLO
 
 ## Python and notebooks
 
-You will read and lightly edit Python in Jupyter notebooks, and look at results
-in pandas tables.
+You will read and lightly edit Python in Jupyter notebooks. If you are not familiar with Python or Jupyter notebooks, here are some materials that can help.
 
 - [The Python Tutorial](https://docs.python.org/3/tutorial/): sections 3–5 are enough.
 - [Welcome to Colab](https://colab.research.google.com/notebooks/intro.ipynb): running cells, saving a copy.
 
 ## Transformers and LLMs
 
-You should know what a transformer layer contains (attention and an MLP), what
-the weights are, and that an LLM generates text **one token at a time**, feeding
-each new token back in.
+You should have a rough understanding of how transformers work. If you’re not familiar with them, here are some of my favorite resources (these are my personal favorites---not AI-generated!).
 
-- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) (Jay Alammar): the architecture, visually.
-- [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/) (Jay Alammar): decoder-only models and token-by-token generation.
+- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) (Jay Alammar): this is one of my favorites, but note that it explains how the *original* transformer architecture worked. Modern-day transformers (*decoder-only* transformers) look different, as shown in the next resource below.
+- [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/) (Jay Alammar): decoder-only transformers and token-by-token generation.
 - [Transformer Explainer](https://poloclub.github.io/transformer-explainer/) (Polo Club, Georgia Tech): an interactive visualization of GPT-2 running live in your browser. Type a prompt and watch it flow through every layer.
 
 ## The KV cache
@@ -153,7 +149,7 @@ roofline model, and lecture 1 is built on it.
 - [Making Deep Learning Go Brrrr From First Principles](https://horace.io/brrr_intro.html) (Horace He): compute-, memory- and overhead-bound, without math.
 - [All About Rooflines](https://jax-ml.github.io/scaling-book/roofline/) (*How To Scale Your Model*): the roofline model with worked examples.
 
-Numbers worth remembering for the GPU used in the labs, the
+Numbers worth familiarizing for the GPU used in the labs, the
 [NVIDIA A100-80GB](https://www.nvidia.com/en-us/data-center/a100/):
 
 | | A100-80GB (SXM) |
