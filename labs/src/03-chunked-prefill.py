@@ -21,7 +21,8 @@
 # waits seconds for their first token, or the existing users see their text
 # **stall** mid-sentence. In this lecture we try the obvious answers first, see why
 # each of them fails, and then build up to **chunked prefill**, the technique used
-# by modern serving systems such as vLLM and SGLang.
+# by modern serving systems such as vLLM (Kwon et al., SOSP '23) and SGLang
+# (Zheng et al., NeurIPS '24).
 #
 # :::{admonition} Learning goals
 # - Explain why the three "obvious" ways to schedule a new prefill (make it wait,
@@ -105,16 +106,107 @@ def run_scenario(chunk_size):
     return r, steps
 
 # %% [markdown]
+# Before running the simulator, we will sketch each policy as a diagram. Each row
+# is one request: three of the 16 chat users, and the document. Each box is the
+# work a request does in one step: a **decode** box ends with one new token, a
+# **prefill** box processes the prompt, and a gray box means the request is
+# **waiting** while the GPUs run something else. The diagrams are schematic: the
+# real prefill is about 16 decode steps long, not 4. (Click to show the code that
+# draws them, if you are curious.)
+
+# %% cellView="form" tags=["hide-input"]
+#@title Diagram code (schematic, not to scale)
+from matplotlib.patches import Patch
+
+def draw_schedule(policy, title):
+    """Sketch one scheduling policy. Time unit: one decode step."""
+    PREFILL, CHUNK_STEP, N_CHUNKS = 4.0, 1.5, 3   # whole prefill, one chunked step, chunks
+    ARRIVAL, DOC_TOKENS = 2.0, 4
+    left = [6, 7, 8]                  # output tokens still to produce, per chat user
+    DOC = len(left)                   # row of the document
+    boxes, t, chunks_done, doc_left, first_token = [], 0.0, 0, DOC_TOKENS, None
+    while any(left) or doc_left:
+        need_prefill = t >= ARRIVAL and chunks_done < N_CHUNKS
+        chat, doc, length = "decode", None, 1.0
+        if need_prefill and policy == "wait" and any(left):
+            doc = "waiting"
+        elif need_prefill and policy == "chunked":
+            doc, length = f"chunk {chunks_done + 1}", CHUNK_STEP
+        elif need_prefill:
+            doc, length = "prefill (whole prompt)", PREFILL
+            chat = "paused" if policy == "pause" else "decode"
+        elif chunks_done == N_CHUNKS and doc_left:
+            doc = "decode"
+        for i, n in enumerate(left):
+            if n:
+                boxes.append((i, t, length, chat))
+                left[i] -= chat == "decode"
+        if doc:
+            boxes.append((DOC, t, length, doc))
+            if doc.startswith(("prefill", "chunk")):
+                chunks_done = N_CHUNKS if doc.startswith("prefill") else chunks_done + 1
+                if chunks_done == N_CHUNKS:
+                    first_token, doc_left = t + length, doc_left - 1
+            elif doc == "decode":
+                doc_left -= 1
+        t += length
+
+    color = {"decode": "C1", "paused": "0.85", "waiting": "0.85"}
+    fig, ax = plt.subplots(figsize=(10, 2.7))
+    merged = []                      # merge a row's consecutive waiting boxes into one
+    for b in boxes:
+        prev = [j for j, m in enumerate(merged) if m[0] == b[0]]
+        if prev and b[3] == merged[prev[-1]][3] == "waiting":
+            row, start, length, kind = merged[prev[-1]]
+            merged[prev[-1]] = (row, start, length + b[2], kind)
+        else:
+            merged.append(b)
+    for row, start, length, kind in merged:
+        ax.barh(row, length - 0.06, left=start, height=0.6, color=color.get(kind, "C0"),
+                hatch="//" if kind in ("paused", "waiting") else None, edgecolor="white")
+        label = {"decode": "1 token" if length > 2 else ""}.get(kind, kind)
+        if label:
+            ax.text(start + length / 2, row, label, ha="center", va="center", fontsize=8,
+                    color="white" if kind.startswith(("prefill", "chunk", "decode")) else "k")
+    ax.axvline(ARRIVAL, color="k", ls=":", lw=1)
+    ax.text(ARRIVAL, -0.75, "document arrives ", ha="right", va="center", fontsize=8)
+    ax.annotate("", (ARRIVAL, DOC + 0.55), (first_token, DOC + 0.55),
+                arrowprops=dict(arrowstyle="<->", color="C0"))
+    ax.text((ARRIVAL + first_token) / 2, DOC + 0.8, "document's TTFT", ha="center",
+            va="center", fontsize=8, color="C0")
+    gap = PREFILL if policy in ("pause", "mixed") else CHUNK_STEP if policy == "chunked" else 1.0
+    ax.annotate("", (ARRIVAL, -0.45), (ARRIVAL + gap, -0.45),
+                arrowprops=dict(arrowstyle="<->", color="C3"))
+    ax.text(ARRIVAL + gap + 0.1, -0.45, "chat users' gap between tokens", ha="left",
+            va="center", fontsize=8, color="C3")
+    ax.set(xlim=(0, 16), ylim=(DOC + 1.1, -1.05), yticks=range(DOC + 1),
+           yticklabels=[f"chat user {i + 1}" for i in range(DOC)] + ["document"],
+           xticks=[], xlabel="time →", title=title)
+    ax.grid(False)
+    ax.legend(handles=[Patch(color="C0", label="prefill"), Patch(color="C1", label="decode (1 token)"),
+                       Patch(facecolor="0.85", hatch="//", edgecolor="white", label="waiting")],
+              loc="upper left", bbox_to_anchor=(1.0, 1.0), frameon=False, fontsize=8)
+    fig.tight_layout()
+
+# %% [markdown]
 # ## What if... the new request waits?
 #
 # The simplest policy: let the requests that are already running finish, and only
-# then start the new one. Early serving systems such as FasterTransformer worked
+# then start the new one. Early serving systems such as NVIDIA's
+# [FasterTransformer](https://github.com/NVIDIA/FasterTransformer) worked
 # this way (*request-level batching*): a batch of requests ran together until all
 # of them were done, and only then was the next batch formed.
-#
+
+# %% cellView="form" tags=["remove-input"]
+#@title Diagram
+draw_schedule("wait", "1. The new request waits until the running requests finish")
+
+# %% [markdown]
 # The chat users are happy: nothing interrupts them, and they keep receiving a token
-# every ~40 ms. But the document request has to wait until the last chat user
-# finishes before its prefill can even start:
+# every ~40 ms. But the document has to wait until the *last* chat user finishes
+# before its prefill can even start. Notice also that the batch shrinks as chat
+# users finish one by one, so the GPUs do less and less useful work per step. In
+# our scenario, the document's TTFT becomes:
 
 # %%
 ttft_wait = (chat_done - 2.0) + prefill_time
@@ -124,8 +216,7 @@ print(f"document TTFT if it waits: {ttft_wait:.1f} s")
 # Over 9 seconds before the user sees the first word of the summary, and almost all
 # of it is spent waiting, not computing. On a busy server it is even worse: there
 # is *always* someone decoding, so a new request could wait indefinitely
-# (*starvation*). Meanwhile, as the chat users finish one by one, the running batch
-# shrinks and the GPUs do less and less useful work per step.
+# (*starvation*).
 #
 # **Verdict: great TPOT, terrible TTFT.**
 #
@@ -133,8 +224,14 @@ print(f"document TTFT if it waits: {ttft_wait:.1f} s")
 #
 # The opposite policy: as soon as a new request arrives, pause everyone who is
 # decoding, run the new request's prefill on its own, then resume the decodes. This
-# *prefill-first* policy was the default in vLLM before its V1 engine.
-#
+# *prefill-first* policy was the default in vLLM (Kwon et al., SOSP '23) before
+# its V1 engine.
+
+# %% cellView="form" tags=["remove-input"]
+#@title Diagram
+draw_schedule("pause", "2. Pause the decodes and prefill the new request right away")
+
+# %% [markdown]
 # Now the document gets its first token quickly: it only waits for the current
 # decode step to finish, then runs its 650 ms prefill. But during that prefill,
 # **none of the 16 chat users receives a token**. From each user's point of view,
@@ -158,9 +255,18 @@ print(f"longest gap between two tokens for a chat user: {1e3 * stall_pause:.0f} 
 #
 # Lecture 2 showed that batching is the key to efficiency. So why not put the new
 # prefill and the 16 decodes into the *same* step? The decodes then make progress
-# during the prefill instead of being paused. Orca (OSDI 2022), which introduced
+# during the prefill instead of being paused. Orca (Yu et al., OSDI '22), which introduced
 # scheduling at the granularity of a single step (*iteration-level scheduling*),
 # could form such mixed batches.
+
+# %% cellView="form" tags=["remove-input"]
+#@title Diagram
+draw_schedule("mixed", "3. Batch the whole prefill and the decodes into one step")
+
+# %% [markdown]
+# Each chat user now gets one token out of the long step, instead of nothing. But
+# the step lasts as long as the whole prefill, so the gap between their tokens is
+# just as long as in policy 2.
 #
 # This is what the simulator's scheduler does when its token budget per step
 # (`chunk_size`) is large enough to hold the whole prompt, e.g. 4,096 tokens. Let's
@@ -221,13 +327,26 @@ print(f"longest gap between two tokens for a chat user: {1e3 * gap_mixed:.0f} ms
 # its own, and so on. The result is exactly the same as prefilling the whole prompt
 # at once (this is the same mechanism decode uses to attend to earlier tokens).
 #
-# **Chunked prefill**, introduced by Sarathi-Serve (OSDI 2024) and now used by
-# default in vLLM and SGLang, builds every step under a fixed **token budget**
+# **Chunked prefill**, introduced by Sarathi-Serve (Agrawal et al., OSDI '24) and
+# now used by default in vLLM and SGLang, builds every step under a fixed **token budget**
 # (`chunk_size` in our simulator):
 #
 # 1. Every request that is decoding gets its next token first (1 token each).
 # 2. The remaining budget goes to prefills. A prompt longer than the remaining
 #    budget is cut, and the rest of it continues in the next step.
+#
+# In the same diagram as before:
+
+# %% cellView="form" tags=["remove-input"]
+#@title Diagram
+draw_schedule("chunked", "4. Chunked prefill: the prompt is split across several short steps")
+
+# %% [markdown]
+# Every step now contains a piece of the prefill *and* one token for every chat
+# user. Each step is a bit longer than a plain decode step, but none of them is
+# long, and the document still makes progress in every step. The cost is a
+# slightly later first token for the document, because its prefill is spread over
+# several steps.
 #
 # With a budget of 512 tokens, each step in our scenario holds 16 decode tokens and
 # a 496-token chunk of the document:
