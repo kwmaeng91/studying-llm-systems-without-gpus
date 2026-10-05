@@ -7,6 +7,11 @@ built on Microsoft's [Vidur](https://github.com/microsoft/vidur).
 - **Read online:** https://studying-llm-systems-without-gpus.readthedocs.io *(after the RTD project is created)*
 - **Run a lab:** the "Open in Colab" / "Launch Binder" buttons on each lab page.
 
+## Authors
+
+[Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and
+[Claude Code](https://claude.com/claude-code) 🤖
+
 ## Layout
 
 ```

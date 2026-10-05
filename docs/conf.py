@@ -7,8 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "_ext"))
 
 project = "LLM Systems Without GPUs"
-author = "PAWS Lab, Penn State"
-copyright = "2026, PAWS Lab"
+author = "Kiwan Maeng and Claude Code"
+copyright = "2026, Kiwan Maeng"
 release = "0.1"
 
 # Where the course lives on GitHub. Colab/Binder buttons and the notebooks'

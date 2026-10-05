@@ -2,6 +2,9 @@
 
 **A hands-on lecture series on LLM serving systems that you can follow even when you don't have GPUs.**
 
+By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and
+[Claude Code](https://claude.com/claude-code) 🤖
+
 The labs run on a **CPU-only simulator** of LLM inference clusters. It predicts
 each operation's runtime from profiles measured on real A100 and H100 GPUs, so you
 can experiment with hardware you don't have. The simulator we are using is
