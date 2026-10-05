@@ -24,7 +24,7 @@
 # :::{admonition} Learning goals
 # - Explain why batching prefills makes TTFT grow linearly, while batching decodes
 #   leaves TPOT almost unchanged.
-# - Read a throughput–latency curve, find its knee, and relate it to Little's law.
+# - Explain when batching starts to see its limits.
 # - Explain why tail latency (p99) degrades before the median (p50), and define goodput.
 # :::
 
@@ -55,22 +55,20 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # :::{warning}
 # **Unrealistic, but educational: prefill-only and decode-only requests.**
 #
-# Real requests have both a prompt and an output, and real schedulers mix them:
-# the same forward pass can contain one request's prompt and other requests' decode
-# tokens. Mixing makes the two effects in this lecture hard to tell apart. So in
-# this lecture every request is one of two artificial kinds:
+# Real requests have both a prompt and an output, and real schedulers may mix them, which we learn further in lecture 3.
+# However, mixing prefill and decode complicates reasoning and make the behavior system-dependent.
+# In this lecture, we simplify this for educational purposes, and make every request either prefill-only or decode-only:
 #
 # - **prefill-only**: a normal prompt, but only **1** output token (`decode_tokens=1`);
 # - **decode-only**: a **1-token** prompt (`prefill_tokens=1`), then a normal output.
 #
-# No real workload looks like this. We use them only to see prefill and decode
-# in isolation.
+# No real workload looks like this.
 # :::
 
 # %% [markdown]
 # ## Batching prefills
 #
-# $B$ prefill-only requests with 512-token prompts arrive at the same time. The
+# What happens if $B$ prefill-only requests with 512-token prompts arrive at the same time? The
 # scheduler caps how many tokens one forward pass may process (`chunk_size`, a
 # knob we meet properly in lecture 3). Here we raise it to 16,384 so that all $B$
 # prompts fit into **one** forward pass.
@@ -109,8 +107,7 @@ fig.tight_layout()
 #
 # ## Batching decodes
 #
-# Now $B$ decode-only requests (256 output tokens each) arrive together and decode
-# side by side. Every forward pass produces one token for each of the $B$ requests.
+# Now let's see what happens when $B$ decode-only requests (256 output tokens each) arrive together. Every forward pass produces one token for each of the $B$ requests.
 
 # %%
 rows = []
@@ -136,7 +133,7 @@ fig.tight_layout()
 # %% [markdown]
 # The opposite picture. TPOT stays at about 40 ms from 1 to 128 requests, while
 # throughput grows by more than 100×. Decode is **memory-bound**: each step loads
-# all the weights anyway, and the extra requests reuse them almost for free.
+# all the weights anyway, and the extra requests in the same batch reuse them almost for free.
 # (The small dips and bumps in TPOT are noise from the simulator's fitted
 # runtime models, not a real effect.)
 #
@@ -188,29 +185,10 @@ fig.tight_layout()
 # %% [markdown]
 # Two regimes, with a sharp **knee** at about 10–11 requests per second:
 #
-# - **Below the knee**, throughput tracks the offered load: every request is
-#   served as it arrives. TPOT rises only slightly as the running batch grows, as
-#   the decode-batching experiment predicts.
-# - **Past the knee**, throughput flattens at the system's capacity and the extra
-#   requests **wait in a queue**. TPOT stays flat, because the batch is already at
-#   its cap, but TTFT jumps from ~60 ms to seconds. It keeps growing the longer
-#   the overload lasts.
-#
-# With decode-only requests, TTFT is almost pure **waiting time**, which makes the
-# queueing easy to see.
-#
-# ### Where is the knee? Little's law
-#
-# A basic result from queueing theory, **Little's law**, says that the average
-# number of requests in a system equals the arrival rate × the time each request
-# spends there. Here, at most 128 requests can be running (the batch cap), and each
-# takes about 256 tokens × 42 ms ≈ 10.8 s. So the most the system can sustain is
-#
-# $$
-# \text{max arrival rate} \approx \frac{128\ \text{running requests}}{10.8\ \text{s per request}} \approx 12\ \text{req/s},
-# $$
-#
-# right where the curves bend.
+# - **Below the knee**, throughput linearly increases with the load, and TTFT and TPOT stays nearly flat.
+#   This is because, every request that arrives immediately joins the batch, and as we learned before, adding more requests to a batch does not degrade TPOT much.
+# - **Past the knee**, throughput flattens, and TTFT skyrockets. This is because the system cannot increase the batch size further, and requests are waiting in the queue to be served.
+#   There is no prefill (these are decode-only requests) but this queuing increases TTFT. A new request cannot start, until a prior request finishes and makes room for it.
 
 # %% [markdown]
 # ### p99 degrades before p50
@@ -223,7 +201,10 @@ fig.tight_layout()
 #
 # ## Goodput: throughput that meets the SLO
 #
-# A common way to summarize this curve is **goodput**: the highest load at which
+# TTFT and TPOT are both separately important, and both should meet a certain objective.
+# For example, people usually say that TTFT should be less than 200--500 ms to prevent users from getting bored,
+# and TPOT should be less than 50--100 ms to mathc with a typical reading speed.
+# A common way to summarize this is **goodput**: the highest load at which
 # the service-level objective (SLO) still holds.
 
 # %%
@@ -281,9 +262,6 @@ lsg.quiz([
                  "The simulator adds random noise to p99"],
      "answer": 0,
      "explain": "Even below capacity, bursts briefly fill the batch. The unlucky requests in them form the tail."},
-    {"q": "At most 100 requests can run at once, and each takes 20 s. By Little's law, about what arrival rate can the system sustain?",
-     "options": ["0.2 req/s", "5 req/s", "20 req/s", "2,000 req/s"], "answer": 1,
-     "explain": "Max rate ≈ running requests ÷ time per request = 100 ÷ 20 s = 5 req/s."},
     {"q": "What is goodput?",
      "options": ["The peak throughput of the GPU",
                  "The highest throughput at which the latency SLO is still met",
