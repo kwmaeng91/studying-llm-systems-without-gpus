@@ -482,8 +482,10 @@ fig.tight_layout()
 # Finally, let's split TPOT by request type, with a medium and the largest budget.
 
 # %%
+loaded = {}
 for c in (512, 4096):
-    r = lsg.simulate(**SYSTEM, trace=trace, num_requests=n, qps=4, chunk_size=c)
+    r = loaded[c] = lsg.simulate(**SYSTEM, trace=trace, num_requests=n, qps=4, chunk_size=c,
+                                 keep_steps=True)
     kind = np.where(r.requests["request_num_prefill_tokens"] > 1000, "document", "chat")
     print(f"chunk_size={c}")
     print((1e3 * r.tpot.groupby(kind).describe(percentiles=[.5, .99])[["50%", "99%"]])
@@ -500,7 +502,64 @@ for c in (512, 4096):
 # bumpy the stream is. A chat user who sees one 650 ms freeze among 255 smooth
 # tokens has a TPOT only a few ms higher, but certainly notices the freeze. This
 # is why the scenario above measured the longest gap directly, and why some
-# systems also report the *time between tokens* (TBT) distribution.
+# systems also report the distribution of the **time between tokens** (TBT): the
+# gap before *each* output token, rather than one average per request.
+#
+# We can compute TBT from the recorded steps. A decoding request receives one token
+# per step, so each decode token in a step waited exactly as long as that step took.
+# A step with 20 decode tokens therefore contributes 20 gaps of its duration:
+
+# %%
+tbt = {c: np.repeat(r.steps["batch_execution_time"].values,
+                    r.steps["batch_num_decode_tokens"].values) for c, r in loaded.items()}
+pd.DataFrame({f"chunk_size={c}": {
+    "mean TPOT (ms)": round(1e3 * loaded[c].tpot.mean()),
+    "mean TBT (ms)": round(1e3 * x.mean()),
+    "TBT p50 (ms)": round(1e3 * np.percentile(x, 50)),
+    "TBT p99 (ms)": round(1e3 * np.percentile(x, 99)),
+    "tokens waiting > 300 ms": f"{(x > 0.3).mean():.1%}",
+} for c, x in tbt.items()})
+
+# %% [markdown]
+# The mean TBT matches the mean TPOT, as it should: both are averages of the same
+# gaps. The two budgets differ by less than 10% on average, yet the percentiles
+# tell a very different story. A **cumulative distribution function** (CDF) shows
+# all of it at once: for every gap length on the x-axis, the curve gives the
+# fraction of tokens whose gap was at most that long. A curve that rises steeply and
+# early means consistently short gaps; a curve that creeps toward 1 far to the
+# right means a tail of long waits.
+
+# %%
+fig, ax = plt.subplots(figsize=(8, 3.6))
+for c, color in ((512, "C2"), (4096, "C3")):
+    x = np.sort(1e3 * tbt[c])
+    ax.plot(x, np.arange(1, len(x) + 1) / len(x), color=color, lw=2, label=f"chunk_size={c}")
+    ax.axvline(1e3 * tbt[c].mean(), color=color, ls="--", lw=1)
+    ax.text(1e3 * tbt[c].mean() + 8, 0.05 if c == 512 else 0.15, f"mean ({c})",
+            color=color, fontsize=8)
+ax.set(xlabel="time between tokens (ms)", ylabel="fraction of tokens", xlim=(0, 800),
+       ylim=(0, 1.02), title="Time between tokens at 4 req/s (CDF)")
+ax.legend(loc="center right")
+fig.tight_layout()
+
+# %% [markdown]
+# The two dashed lines (the averages) are close, but the curves are not:
+#
+# - **`chunk_size=4096`** (red) is *faster* for most tokens: about 80% of them
+#   come from plain decode steps of ~40 ms, because most steps contain no prefill at
+#   all. But the curve then flattens and only reaches 1 at ~700 ms. Those are the
+#   tokens stuck behind a whole 3,800-token prefill, about one token in twenty. A
+#   user reading the output sees the text freeze for most of a second, again and
+#   again.
+# - **`chunk_size=512`** (green) has two steps: ~40% of tokens come from plain
+#   decode steps (~40 ms), and the rest from steps that carry a prefill chunk
+#   (~105 ms). Prefill work is spread over many steps, so more tokens wait a bit
+#   longer, but the curve reaches 1 at ~110 ms: *no* token waits long.
+#
+# The average cannot tell these two experiences apart; the CDF (or a high
+# percentile like p99) can. This is why serving systems state latency targets as
+# percentiles, and why the TBT tail, not the mean TPOT, is what chunked prefill
+# improves.
 #
 # This **interference** between requests is what makes it hard to give latency
 # guarantees on a shared GPU, and chunked prefill is the first line of defense
@@ -513,7 +572,7 @@ for c in (512, 4096):
 # | New request waits for decodes | very bad (starvation) | good | FasterTransformer (request-level batching) |
 # | Pause decodes, prefill first | good | bad (stalls) | vLLM before V1 |
 # | Prefill + decodes in one step | good | bad (stalls) | Orca |
-# | **Chunked prefill** | slightly worse than above | good, tunable | Sarathi-Serve, vLLM V1, SGLang |
+# | **Chunked prefill** | slightly worse than above | slightly worse, tunable | Sarathi-Serve, vLLM V1, SGLang |
 #
 # Chunked prefill bounds the work in every step with a token budget, so a long
 # prompt can no longer freeze everyone else, and it fills the leftover compute of
@@ -530,9 +589,6 @@ for c in (512, 4096):
 #    `chunk_size` for p99 TPOT change?
 # 3. Suppose your SLO is p99 TTFT < 2 s **and** p99 TPOT < 100 ms. Find the
 #    largest `qps` you can sustain, and the `chunk_size` that achieves it.
-# 4. A different fix is to never mix the two kinds of work: run prefills and
-#    decodes on *separate* GPUs. This is prefill–decode disaggregation, covered in
-#    {doc}`06-pd-disaggregation`. What new cost does it introduce?
 # :::
 #
 # ## Check your understanding
