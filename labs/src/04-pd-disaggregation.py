@@ -354,10 +354,6 @@ pd.DataFrame({f"{n:,}-token prompt": {name: f"{1e3 * n * kv_per_token / bw:.0f} 
 # | Extra cost | none | KV-cache transfer; needs fast interconnects |
 # | Best when | short prompts, changing traffic mix, TTFT matters most | long prompts, strict TBT/TPOT targets, stable mix with a well-sized split |
 #
-# The two are not mutually exclusive: production systems combine them, for example
-# disaggregating long-context traffic while serving short requests on ordinary
-# replicas, or using chunked prefill inside the prefill pool.
-#
 # ## Exercises
 #
 # :::{admonition} Try it
