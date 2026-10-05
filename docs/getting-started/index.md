@@ -15,8 +15,7 @@ fitted to measurements taken on real hardware. See
 
 The simulator has hundreds of command-line flags. The labs use a small Python
 interface,
-[`labs/llm_systems_wo_gpus.py`](https://github.com/kwmaeng91/studying-llm-systems-without-gpus/blob/main/labs/llm_systems_wo_gpus.py),
-so a simulation is one function call:
+[`labs/llm_systems_wo_gpus.py`](https://github.com/kwmaeng91/studying-llm-systems-without-gpus/blob/main/labs/llm_systems_wo_gpus.py), which we (meaning my Claude Code agent) built for educational purposes:
 
 ```python
 import llm_systems_wo_gpus as lsg
@@ -30,7 +29,7 @@ r.requests         # one row per request (pandas DataFrame)
 lsg.sweep("qps", [1, 2, 4, 8])                # one summary row per value
 ```
 
-The full API is in {doc}`../reference/python-api`.
+The full API is in {doc}`../reference/python-api`. If you plan to use [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) or [Vidur](https://github.com/microsoft/vidur) for research, I highly recommend **not** using this educational package. Instead, learn how to work with the actual simulators directly, as this educational package limits what you can do with them for simplicity.
 
 ## Where to run
 
