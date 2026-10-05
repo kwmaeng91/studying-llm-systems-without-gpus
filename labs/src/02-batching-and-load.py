@@ -7,7 +7,7 @@
 # ---
 
 # %% [markdown]
-# # [TEMP] 2. Batching, Load, and the Throughput–Latency Trade-off
+# # 2. Batching, Load, and the Throughput–Latency Trade-off
 #
 # Lecture 1 showed that a lone decode step is **memory-bound**: each GPU streams
 # its half of the 65.5 GB of weights to produce a single token, while its math
