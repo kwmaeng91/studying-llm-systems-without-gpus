@@ -9,6 +9,8 @@
 # %% [markdown]
 # # 2. Batching, Load, and the Throughput–Latency Trade-off
 #
+# By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+#
 # Lecture 1 showed that a lone decode step is **memory-bound**: each GPU streams
 # its half of the 65.5 GB of weights to produce a single token, while its math
 # units sit almost idle. Every serving system fixes this by **batching**: one

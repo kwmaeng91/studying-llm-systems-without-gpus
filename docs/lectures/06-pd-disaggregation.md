@@ -1,5 +1,7 @@
 # [TEMP] 6. Prefill–Decode Disaggregation
 
+By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+
 :::{admonition} Status: planned
 :class: warning
 This lecture is an outline. The simulator supports PD disaggregation through

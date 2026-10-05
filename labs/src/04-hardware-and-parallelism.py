@@ -9,6 +9,8 @@
 # %% [markdown]
 # # [TEMP] 4. Hardware and Tensor Parallelism
 #
+# By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+#
 # Up to now everything ran on one A100. Real deployments have to choose:
 #
 # - **Which GPU?** H100s are faster but cost more per hour.

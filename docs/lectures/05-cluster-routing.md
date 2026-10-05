@@ -1,5 +1,7 @@
 # [TEMP] 5. Scaling Out: Replicas and Request Routing
 
+By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+
 :::{admonition} Status: planned
 :class: warning
 This lecture is an outline. The simulator features it needs are already

@@ -7,7 +7,9 @@
 # ---
 
 # %% [markdown]
-# # [TEMP] 3. Scheduling: Chunked Prefill and the Prefill–Decode Interference
+# # 3. Scheduling: Chunked Prefill and the Prefill–Decode Interference
+#
+# By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
 #
 # Lecture 2 kept things simple: every request was either prefill-only or
 # decode-only. Real requests have both phases, so a serving system constantly faces

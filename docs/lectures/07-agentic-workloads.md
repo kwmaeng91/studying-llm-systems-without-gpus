@@ -1,5 +1,7 @@
 # [TEMP] 7. Agentic Workloads: Sessions, Prefix Caching, and Tool Calls
 
+By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+
 :::{admonition} Status: planned
 :class: warning
 This lecture is an outline. It builds on the main contribution of the simulator:

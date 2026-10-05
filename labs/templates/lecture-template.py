@@ -9,6 +9,8 @@
 # %% [markdown]
 # # N. Lecture Title
 #
+# By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+#
 # One or two paragraphs motivating the topic.
 #
 # :::{admonition} Learning goals

@@ -1,5 +1,7 @@
 # 0. Getting Ready for the Lecture
 
+By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+
 This series assumes some background in Python, in how transformer language models
 work, and in what limits a GPU's speed. You don't need to be an expert in any of
 them. Start with the vocabulary below so we all use the same words, then use the

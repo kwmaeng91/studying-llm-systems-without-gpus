@@ -9,6 +9,8 @@
 # %% [markdown]
 # # 1. Prefill and Decode
 #
+# By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
+#
 # Every LLM request goes through two very different phases:
 #
 # **Prefill**
