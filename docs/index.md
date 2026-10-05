@@ -1,11 +1,11 @@
-# LLM Systems Without GPUs
+# Studying LLM Systems Without GPUs
 
-**A hands-on lecture series on LLM serving systems that you can follow on a laptop.**
+**A hands-on lecture series on LLM serving systems that you can follow even when you don't have GPUs.**
 
 The labs run on a **CPU-only simulator** of LLM inference clusters. It predicts
 each operation's runtime from profiles measured on real A100 and H100 GPUs, so you
-can experiment with hardware you don't have. The simulator is
-[Vidur-Agent](https://github.com/psu-paws/Vidur-Agent), which extends Microsoft's
+can experiment with hardware you don't have. The simulator we are using is
+[Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) (Kim et al., IISWC 2026), which extends Microsoft's
 [Vidur](https://github.com/microsoft/vidur) (Agrawal et al., MLSys 2024).
 
 Each lecture pairs an explanation with a runnable notebook. Click
