@@ -7,18 +7,19 @@
 # ---
 
 # %% [markdown]
-# # [TEMP] 1. Prefill and Decode
+# # 1. Prefill and Decode
 #
 # Every LLM request goes through two very different phases:
 #
 # **Prefill**
 # : The model reads the whole prompt in one forward pass and writes the
 #   key/value (KV) vectors of every prompt token into the **KV cache**. It
-#   ends by emitting the first output token.
+#   ends by emitting the first output token. This is your model ``reading'' and understanding your question.
 #
 # **Decode**
 # : The model generates the remaining tokens one at a time. Each step does a
 #   forward pass for a *single* new token per request, reusing the KV cache.
+#   This is your model responding to your question.
 #
 # Users experience these two phases as two separate latencies:
 #
@@ -28,6 +29,8 @@
 # | **TPOT** (time per output token) | average gap between later tokens | decode steps |
 # | **E2E latency** | arrival → last token | ≈ TTFT + TPOT × (output tokens − 1) |
 #
+# TTFT is important because when you ask ChatGPT a question, you expect it to start responding soon. If it doesn’t start producing anything, you may wonder whether it’s broken.
+# TPOT is important because once ChatGPT starts generating a response, it should generate tokens fast enough to keep up with your reading speed (or faster).
 # In this lecture you will measure all three in simulation and work out *why*
 # prefill and decode scale so differently.
 #
@@ -46,7 +49,7 @@
 # serving system on the CPU.
 #
 # The simulations in these lectures rely on
-# [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent), which extends Microsoft's
+# [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) (Kim et al., IISWC 2026), which extends Microsoft's
 # [Vidur](https://github.com/microsoft/vidur) LLM inference simulator
 # (Agrawal et al., MLSys 2024). We use them as the simulation engine.
 # `llm_systems_wo_gpus` (imported as `lsg`) is an easy-to-use wrapper we built on
@@ -55,13 +58,12 @@
 #
 # :::{note}
 # To run for free on Colab (~12 GB of RAM, 2 CPU cores), `lsg` uses a
-# **stripped-down configuration** of the simulator. It precomputes kernel runtimes
+# **stripped-down configuration** of the simulator. It predicts kernel latencies
 # only up to **16,384 tokens per request** (prompt + output), batches of **128
 # requests**, and prefill chunks of **4,096 tokens**, and `simulate` raises an error
 # beyond them. These are limits of this course setup, not of the simulator:
 # the full Vidur-Agent handles far longer contexts and was validated against much
-# longer, real multi-turn agent traces. With more memory you can raise them in
-# `LITE_GRID` inside `llm_systems_wo_gpus.py`.
+# longer, real multi-turn agent traces.
 # :::
 #
 # The first run downloads the simulator and installs its dependencies, which takes
@@ -85,10 +87,10 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 # %% [markdown]
 # ## The system we simulate
 #
-# We serve **Qwen2.5-32B-Instruct** on **two NVIDIA A100-80GB GPUs**. Its 32.8B
+# We simulate serving **Qwen2.5-32B-Instruct** on **two NVIDIA A100-80GB GPUs**. Its 32.8B
 # parameters take 65.5 GB in 16-bit precision, which would leave almost no room for
 # the KV cache on one 80 GB GPU. So the model is split across two GPUs with
-# *tensor parallelism* (lecture 4), and each GPU holds half of every weight matrix.
+# *tensor parallelism* (TP-2), and each GPU holds half of every weight matrix.
 #
 # | | Qwen2.5-32B-Instruct |
 # |---|---|
@@ -107,7 +109,7 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # ## Running a simulation
 #
 # `lsg.simulate(...)` describes a system and a workload, runs the simulator, and
-# returns the result. Here 10 requests (512 prompt tokens, 128 output tokens each)
+# returns the result. Here, 10 requests (512 prompt tokens, 128 output tokens each)
 # arrive at `qps=0.05` requests per second, i.e. one every 20 s on average. Since
 # each takes ~5 s, they rarely overlap: almost every request has the GPUs to itself.
 #
@@ -185,9 +187,10 @@ for n in (1024, 4096, 16000):
           f"-> GPUs run at {bound / sim:.0%} of peak FLOP/s")
 
 # %% [markdown]
-# Prefill keeps the GPUs' math units about half busy, which is typical for real
-# kernels. Doubling the prompt doubles the work, and so doubles TTFT. (Attention
-# adds a term that grows with $N^2$, but at these lengths the weight matrices dominate.)
+# ``compute bound'' numbers show how quickly the prefill would finish if all compute units were fully utilized (i.e., if each GPU actually sustained 312 TFLOP/s).
+# ``simulated'' numbers show how long it actually took. You'll probably see the two numbers differ by roughly 2$\times$, which means that prefill keeps the GPUs' math units only about half busy.
+# This is typical of real kernels---it is very difficult to fully utilize the compute units. Doubling the prompt doubles the work, and so doubles TTFT (attention
+# adds a term that grows with $N^2$, but at these context lengths they are insignificant).
 #
 # ## Decode is memory-bound
 #
@@ -207,16 +210,17 @@ print(f"memory bound {1e3 * bound:.1f} ms, compute bound "
       f"{1e3 * 2 * params / (n_gpus * a100_flops):.2f} ms, simulated TPOT {s['TPOT p50 (ms)']:.1f} ms")
 
 # %% [markdown]
-# Memory traffic, not arithmetic, sets the decode time: the memory bound is
-# ~150× the compute bound. The simulated TPOT is ~2.4× even the memory bound,
-# because at batch size one many kernels are too small to reach peak bandwidth,
-# and every layer adds fixed costs (kernel launches, normalization layers, and the
-# communication between the two GPUs). The simulator's runtimes come from
-# **profiling real A100s**, so they include all of these.
+# Again, ``compute bound'' shows how long it would have taken if all the compute units were fully utilized.
+# Comparing it with the ``simulated'' number, it should be clear that the bottleneck is elsewhere (i.e., most compute units are idle).
+# In fact, decode is memory-bound: bringing model weights in from memory takes up most of the time, while the GPU compute units are mostly sitting idle, waiting for the weights to arrive.
+# ``memory bound'' numbers show how long it would have taken if the GPU's HBM bandwidth were fully utilized when reading model weights from memory.
+# This number should be closer to the ``simulated'' number, confirming that decode is indeed memory-bound.
+# However, you'll still see a ~2$\times$ difference because, at batch size one, many kernels are too small to reach peak bandwidth,
+# and every layer incurs fixed costs (kernel launches, normalization layers, and communication between the two GPUs).
 #
 # This is also why TPOT ignores the prompt length: the KV cache of a 16K-token
 # prompt is $2 \times 64\ \text{layers} \times 8\ \text{KV heads} \times 128 \times 2\ \text{B} \times 16\text{K} \approx 4\ \text{GB}$,
-# small next to the 65.5 GB of weights read every step.
+# and reading it from memory adds tiny overheads to the 65.5 GB of weights that needs to be read (with longer prompts this becomes a bigger issue, which we discuss later).
 #
 # ## Decode scales with the output
 #
@@ -276,7 +280,7 @@ fig.tight_layout()
 # extreme case, a 15K-token document with a short 64-token answer such as a
 # summary, tips the balance toward prefill.
 #
-# This is why so much LLM serving research targets decode: it is where a single
+# This is why so much (but not all!) LLM serving research targets decode: it is where a single
 # request spends its time, and it is also where the GPU's math units sit idle.
 #
 # ## Summary
