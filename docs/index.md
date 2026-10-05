@@ -12,6 +12,8 @@ Each lecture pairs an explanation with a runnable notebook. Click
 **Open in Colab** or **Launch Binder** at the top of any lab page to run it in
 your browser, with nothing to install. Start with {doc}`lectures/00-getting-ready`.
 
+The website and lecture materials were built with the help of Claude Code. I’ve done my best to catch and fix any hallucinated content, but please reach out if you spot any issues or have suggestions!
+
 ```{list-table}
 :header-rows: 1
 :widths: 6 40 54
