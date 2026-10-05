@@ -74,82 +74,14 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 #   transferred** from the prefill replica to a decode replica over the network
 #   between GPUs, and the request then decodes there until it finishes.
 #
-# The diagram below uses the same scenario and notation as lecture 3: three chat
-# users are decoding when a long document arrives. On the left, every replica does
-# both phases with chunked prefill; on the right, the document is prefilled on a
-# separate prefill replica.
-
-# %% cellView="form" tags=["hide-input"]
-#@title Diagram code (schematic, not to scale)
-from matplotlib.patches import Patch
-
-def draw_two_designs():
-    PREFILL, CHUNK_STEP, N_CHUNKS, TRANSFER, ARRIVAL = 4.0, 1.5, 3, 0.5, 2.0
-    fig, axes = plt.subplots(1, 2, figsize=(12, 2.9), sharey=True)
-    for ax, design in zip(axes, ("chunked", "pd")):
-        boxes = []                                    # (row, start, length, kind, label)
-        for user, n_tokens in enumerate((7, 8, 9)):
-            t = 0.0
-            for k in range(n_tokens):
-                long_step = design == "chunked" and ARRIVAL <= t < ARRIVAL + N_CHUNKS * CHUNK_STEP
-                length = CHUNK_STEP if long_step else 1.0
-                boxes.append((user, t, length, "decode", ""))
-                t += length
-        if design == "chunked":
-            for k in range(N_CHUNKS):
-                boxes.append((3, ARRIVAL + k * CHUNK_STEP, CHUNK_STEP, "prefill", f"chunk {k + 1}"))
-            first_token = ARRIVAL + N_CHUNKS * CHUNK_STEP
-            decode_start = first_token
-        else:
-            boxes.append((3, ARRIVAL, PREFILL, "prefill", "prefill (prefill GPUs)"))
-            first_token = ARRIVAL + PREFILL
-            boxes.append((3, first_token, TRANSFER, "transfer", ""))
-            decode_start = first_token + TRANSFER
-        for k in range(4):
-            boxes.append((3, decode_start + k, 1.0, "decode", ""))
-        for row, start, length, kind, label in boxes:
-            color = {"decode": "C1", "prefill": "C0", "transfer": "C4"}[kind]
-            ax.barh(row, length - 0.06, left=start, height=0.6, color=color, edgecolor="white")
-            if label:
-                ax.text(start + length / 2, row, label, ha="center", va="center", fontsize=8,
-                        color="white")
-        ax.axvline(ARRIVAL, color="k", ls=":", lw=1)
-        ax.text(ARRIVAL, -0.75, "document arrives ", ha="right", va="center", fontsize=8)
-        ax.annotate("", (ARRIVAL, 3.55), (first_token, 3.55),
-                    arrowprops=dict(arrowstyle="<->", color="C0"))
-        ax.text((ARRIVAL + first_token) / 2, 3.8, "document's TTFT", ha="center",
-                va="center", fontsize=8, color="C0")
-        gap = CHUNK_STEP if design == "chunked" else 1.0
-        ax.annotate("", (ARRIVAL, -0.45), (ARRIVAL + gap, -0.45),
-                    arrowprops=dict(arrowstyle="<->", color="C3"))
-        ax.text(ARRIVAL + gap + 0.1, -0.45, "chat users' gap between tokens", ha="left",
-                va="center", fontsize=8, color="C3")
-        ax.set(xlim=(0, 11), ylim=(4.1, -1.05), yticks=range(4), xticks=[], xlabel="time →",
-               yticklabels=[f"chat user {i + 1}" for i in range(3)] + ["document"],
-               title={"chunked": "Chunked prefill: every replica does both",
-                      "pd": "PD disaggregation: separate prefill and decode GPUs"}[design])
-        ax.grid(False)
-    axes[1].legend(handles=[Patch(color="C0", label="prefill"), Patch(color="C1", label="decode (1 token)"),
-                            Patch(color="C4", label="KV-cache transfer")],
-                   loc="upper left", bbox_to_anchor=(1.0, 1.0), frameon=False, fontsize=8)
-    fig.tight_layout()
-
-# %% cellView="form" tags=["remove-input"]
-#@title Diagram
-draw_two_designs()
-
-# %% [markdown]
-# With disaggregation, the chat users' decode steps never contain prefill work, so
-# their tokens keep arriving at the pace of a plain decode step, whatever prompts
-# other users send. The document is prefilled at full speed on GPUs that do nothing
-# else, but before it can decode, its KV cache must travel to a decode replica.
+# Because decode replicas never run prefill work, decoding users keep receiving
+# tokens at the pace of a plain decode step, whatever prompts other users send.
 #
-# Notice what this costs. In the chunked design, the GPUs that hold the decoding
-# requests also process the prefill, so both kinds of work share the same hardware
-# and the decodes ride along almost for free (lecture 3). In the disaggregated
-# design, prefill can only use the prefill GPUs. If those are busy, a new request
-# waits, even when the decode GPUs have spare compute. **We trade interference for
-# a fixed split of the hardware.**
+# This has a cost. With chunked prefill, the GPUs that hold the decoding requests
+# also process prefills, and the decodes ride along almost for free (lecture 3).
+# With disaggregation, prefills can only use the prefill GPUs: if those are busy, a
+# new request waits, even when the decode GPUs have spare compute. **We trade
+# interference for a fixed split of the hardware.**
 #
 # ## Describing a disaggregated cluster
 #
