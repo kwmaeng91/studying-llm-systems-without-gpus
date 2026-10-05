@@ -44,7 +44,7 @@ Downloads the simulator into `$LSG_BACKEND_DIR` (default
 | `summary()` | Series | TTFT/TPOT p50/p99, E2E p50, queueing p50, throughput, makespan |
 | `ttft`, `tpot`, `e2e` | Series | per-request latencies in seconds |
 | `kv_cache_tokens` | int | KV-cache capacity of one replica, in tokens |
-| `steps` | DataFrame | one row per forward pass, in order: prefill/decode tokens, batch size, `batch_execution_time` (needs `keep_steps=True`) |
+| `steps` | DataFrame | one row per forward pass, in order within each `replica`: prefill/decode tokens, batch size, `batch_execution_time` (needs `keep_steps=True`) |
 | `cdf(metric)` | DataFrame | CDF of a batch-level metric such as `batch_size` or `batch_num_tokens` |
 | `out_dir` | Path | raw simulator output directory |
 | `config` | dict | flags the run used |
@@ -61,7 +61,7 @@ Key columns of `requests`:
 | `request_e2e_time` | arrival → last token |
 | `request_scheduling_delay` | time spent waiting before first scheduled |
 | `request_preemption_time`, `request_num_restarts` | time lost to preemption |
-| `replica` | which replica served it |
+| `replica` | which replica served it (with PD disaggregation: the decode replica; `prefill_replica` and `decode_replica` give both) |
 
 ## `sweep(param, values, **kwargs) → DataFrame`
 

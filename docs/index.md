@@ -36,14 +36,14 @@ The website and lecture materials were built with the help of Claude Code. I’v
   - {doc}`lectures/03-chunked-prefill`
   - chunked prefill, prefill–decode interference
 * - 4
-  - {doc}`lectures/04-hardware-and-parallelism`
-  - GPU type, tensor parallelism
+  - {doc}`lectures/04-pd-disaggregation`
+  - prefill–decode disaggregation vs. chunked prefill
 * - 5
-  - {doc}`lectures/05-cluster-routing`
-  - replicas and routing (outline)
+  - {doc}`lectures/05-hardware-and-parallelism`
+  - GPU type, tensor parallelism
 * - 6
-  - {doc}`lectures/06-pd-disaggregation`
-  - prefill–decode disaggregation (outline)
+  - {doc}`lectures/06-cluster-routing`
+  - replicas and routing (outline)
 * - 7
   - {doc}`lectures/07-agentic-workloads`
   - agentic workloads (outline)

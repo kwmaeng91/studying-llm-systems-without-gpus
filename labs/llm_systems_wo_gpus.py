@@ -166,11 +166,12 @@ class Result:
     @property
     def steps(self) -> pd.DataFrame:
         """One row per forward pass (needs ``keep_steps=True``): tokens, batch size,
-        and ``batch_execution_time`` (s), in execution order."""
+        ``batch_execution_time`` (s), and the ``replica`` that ran it, in execution
+        order within each replica."""
         f = glob.glob(str(self.out_dir / "**" / "batch_metrics.csv"), recursive=True)
         if not f:
             raise FileNotFoundError("batch_metrics.csv not found; rerun with keep_steps=True")
-        return pd.read_csv(f[0]).drop(columns=["Batch Id", "replica"], errors="ignore")
+        return pd.read_csv(f[0]).drop(columns=["Batch Id"], errors="ignore")
 
     def cdf(self, metric: str = "batch_size") -> pd.DataFrame:
         """CDF of a batch-level metric (needs ``store_plots=True``).
@@ -305,12 +306,31 @@ def simulate(
         print(" ".join(cmd))
         print(proc.stdout[-4000:], proc.stderr[-4000:])
     if proc.returncode != 0:
+        if "_max_micro_batch_size" in proc.stderr:
+            raise RuntimeError(
+                "A decode replica was handed more running requests than batch_size_cap. "
+                "The simulator's PD-disaggregation mode cannot queue them, so the decode "
+                "pool is overloaded: lower qps or add decode replicas.")
         raise RuntimeError("Simulation failed (see log above)")
 
     csv = glob.glob(str(out_dir / "**" / "request_metrics.csv"), recursive=True)[0]
     cfg = {k.lstrip("-"): v for k, v in args.items()}
-    return Result(config=cfg, out_dir=out_dir, requests=pd.read_csv(csv),
+    return Result(config=cfg, out_dir=out_dir, requests=_merge_pd_rows(pd.read_csv(csv)),
                   log=proc.stdout + proc.stderr)
+
+
+def _merge_pd_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """With PD disaggregation the simulator writes two rows per request: one from
+    the prefill replica (TTFT columns) and one from the decode replica (decode and
+    E2E columns). Merge them into one row, keeping both replica ids."""
+    if not df["Request Id"].duplicated().any():
+        return df
+    pre = df[df["prefill_e2e_time"].notna()].set_index("Request Id")
+    dec = df[df["prefill_e2e_time"].isna()].set_index("Request Id")
+    merged = dec.combine_first(pre)
+    merged["prefill_replica"] = pre["replica"]
+    merged["decode_replica"] = dec["replica"]
+    return merged.reset_index()[list(df.columns) + ["prefill_replica", "decode_replica"]]
 
 
 def sweep(param: str, values, **kwargs) -> pd.DataFrame:

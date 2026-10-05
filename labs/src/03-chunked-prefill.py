@@ -641,6 +641,10 @@ fig.tight_layout()
 # decode steps with useful prefill work. The budget (`chunk_size`) trades TTFT
 # against TPOT, and the trade-off is sharpest under heavy load.
 #
+# Chunked prefill reduces the interference but cannot remove it, because prefill
+# and decode still share the same GPUs. {doc}`04-pd-disaggregation` explores the
+# alternative: running them on separate GPUs.
+#
 # ## Exercises
 #
 # :::{admonition} Try it

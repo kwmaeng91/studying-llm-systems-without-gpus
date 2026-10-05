@@ -7,7 +7,7 @@
 # ---
 
 # %% [markdown]
-# # [TEMP] 4. Hardware and Tensor Parallelism
+# # [TEMP] 5. Hardware and Tensor Parallelism
 #
 # By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
 #
@@ -110,7 +110,7 @@ fig.tight_layout()
 # 2. **TP lowers per-GPU efficiency.** Each GPU does less useful math per step, and
 #    communication time does not shrink. If you only care about throughput per
 #    dollar and the model fits, use the *smallest* TP and add replicas instead
-#    (lecture 5).
+#    (lecture 6).
 # 3. **H100 vs. A100** is 1.6–2.8× faster across these metrics. Memory-bound
 #    decode (TPOT) gains the least, roughly in line with bandwidth (3.35 vs.
 #    2.0 TB/s). Compute-bound prefill (TTFT) gains the most, from the H100's ~3×
