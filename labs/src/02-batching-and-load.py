@@ -55,9 +55,10 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # :::{warning}
 # **Unrealistic, but educational: prefill-only and decode-only requests.**
 #
-# Real requests have both a prompt and an output, and real schedulers may mix them, which we learn further in lecture 3.
-# However, mixing prefill and decode complicates reasoning and make the behavior system-dependent.
-# In this lecture, we simplify this for educational purposes, and make every request either prefill-only or decode-only:
+# Real requests have both a prompt and an output, and real schedulers may mix them
+# (lecture 3 covers this). However, mixing prefill and decode complicates reasoning
+# and makes the behavior system-dependent. In this lecture, we simplify things for
+# educational purposes and make every request either prefill-only or decode-only:
 #
 # - **prefill-only**: a normal prompt, but only **1** output token (`decode_tokens=1`);
 # - **decode-only**: a **1-token** prompt (`prefill_tokens=1`), then a normal output.
@@ -68,8 +69,8 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # %% [markdown]
 # ## Batching prefills
 #
-# What happens if $B$ prefill-only requests with 512-token prompts arrive at the same time? The
-# scheduler caps how many tokens one forward pass may process (`chunk_size`, a
+# What happens if $B$ prefill-only requests with 512-token prompts arrive at the
+# same time? The scheduler caps how many tokens one forward pass may process (`chunk_size`, a
 # knob we meet properly in lecture 3). Here we raise it to 16,384 so that all $B$
 # prompts fit into **one** forward pass.
 
@@ -107,7 +108,8 @@ fig.tight_layout()
 #
 # ## Batching decodes
 #
-# Now let's see what happens when $B$ decode-only requests (256 output tokens each) arrive together. Every forward pass produces one token for each of the $B$ requests.
+# Now let's see what happens when $B$ decode-only requests (256 output tokens each)
+# arrive together. Every forward pass produces one token for each of the $B$ requests.
 
 # %%
 rows = []
@@ -133,7 +135,8 @@ fig.tight_layout()
 # %% [markdown]
 # The opposite picture. TPOT stays at about 40 ms from 1 to 128 requests, while
 # throughput grows by more than 100×. Decode is **memory-bound**: each step loads
-# all the weights anyway, and the extra requests in the same batch reuse them almost for free.
+# all the weights anyway, and the extra requests in the same batch reuse them almost
+# for free.
 # (The small dips and bumps in TPOT are noise from the simulator's fitted
 # runtime models, not a real effect.)
 #
@@ -185,10 +188,15 @@ fig.tight_layout()
 # %% [markdown]
 # Two regimes, with a sharp **knee** at about 10–11 requests per second:
 #
-# - **Below the knee**, throughput linearly increases with the load, and TTFT and TPOT stays nearly flat.
-#   This is because, every request that arrives immediately joins the batch, and as we learned before, adding more requests to a batch does not degrade TPOT much.
-# - **Past the knee**, throughput flattens, and TTFT skyrockets. This is because the system cannot increase the batch size further, and requests are waiting in the queue to be served.
-#   There is no prefill (these are decode-only requests) but this queuing increases TTFT. A new request cannot start, until a prior request finishes and makes room for it.
+# - **Below the knee**, throughput increases linearly with the load, and TTFT and
+#   TPOT stay nearly flat. This is because every request that arrives immediately
+#   joins the batch, and as we saw above, adding more requests to a batch does not
+#   degrade TPOT much.
+# - **Past the knee**, throughput flattens and TTFT skyrockets. This is because the
+#   system cannot increase the batch size further, so requests wait in the queue to
+#   be served. There is no prefill (these are decode-only requests), but queueing
+#   alone increases TTFT: a new request cannot start until a prior request finishes
+#   and makes room for it.
 
 # %% [markdown]
 # ### p99 degrades before p50
@@ -201,9 +209,9 @@ fig.tight_layout()
 #
 # ## Goodput: throughput that meets the SLO
 #
-# TTFT and TPOT are both separately important, and both should meet a certain objective.
-# For example, people usually say that TTFT should be less than 200--500 ms to prevent users from getting bored,
-# and TPOT should be less than 50--100 ms to mathc with a typical reading speed.
+# TTFT and TPOT both matter, and each should meet its own target. For example,
+# TTFT is often said to need to stay below 200–500 ms so that users do not get
+# bored, and TPOT below 50–100 ms to keep up with a typical reading speed.
 # A common way to summarize this is **goodput**: the highest load at which
 # the service-level objective (SLO) still holds.
 
