@@ -436,7 +436,9 @@ pd.read_csv(trace).value_counts().rename("requests")
 # %% [markdown]
 # We run the trace at a moderate load (2 req/s) and a heavy load (4 req/s),
 # sweeping `chunk_size` from 128 to 4,096 tokens per step. Since the stalls hit
-# only some of the tokens, we look at the **tail**: p99 TPOT.
+# only some of the tokens, we look at the **tail**: p99 TPOT, the slowest 1% of
+# requests by their average gap. (At the end of the lecture we will see that even
+# this understates the stalls.)
 
 # %%
 chunks = [128, 256, 512, 1024, 2048, 4096]
@@ -479,68 +481,130 @@ fig.tight_layout()
 # matters most when the system is busy**, and that is also when choosing the budget
 # is hardest.
 #
-# ## Who pays for the stall?
+# ## TPOT vs. TBT: what the average hides
 #
-# Finally, let's split TPOT by request type, with a medium and the largest budget.
+# So far we have measured decode speed with TPOT. It is worth being precise about
+# what TPOT is: **one number per request**, the *average* gap between that
+# request's output tokens. When we wrote "TPOT p99" above, we meant the 99th
+# percentile *across requests*: the slowest 1% of users, each judged by their own
+# average.
+#
+# A user, however, does not experience an average. They watch the text arrive one
+# token at a time, and they experience every individual gap. The gap before each
+# output token is called the **time between tokens (TBT)**. A request with 256
+# output tokens has one TPOT, but 255 TBTs: a whole distribution of its own, of
+# which TPOT is just the mean. (The "longest gap" we measured in the scenario at the
+# start of this lecture was the largest TBT of a chat user.)
+#
+# Let's look at the TBTs at 4 req/s, with a medium and the largest budget. We can
+# compute them from the recorded steps: under this load the GPUs are never idle, so
+# the steps run back to back, and every request receives one token per step between
+# its first token and its last. Its TBTs are simply the durations of those steps.
 
 # %%
-loaded = {}
-for c in (512, 4096):
-    r = loaded[c] = lsg.simulate(**SYSTEM, trace=trace, num_requests=n, qps=4, chunk_size=c,
-                                 keep_steps=True)
-    kind = np.where(r.requests["request_num_prefill_tokens"] > 1000, "document", "chat")
-    print(f"chunk_size={c}")
-    print((1e3 * r.tpot.groupby(kind).describe(percentiles=[.5, .99])[["50%", "99%"]])
-          .round(1).rename(columns={"50%": "TPOT p50 (ms)", "99%": "TPOT p99 (ms)"}), "\n")
+loaded = {c: lsg.simulate(**SYSTEM, trace=trace, num_requests=n, qps=4, chunk_size=c,
+                          keep_steps=True) for c in (512, 4096)}
+
+def tbt_per_request(r):
+    """The gap before each output token (s): one array per request."""
+    dur = r.steps["batch_execution_time"].values
+    end = r.requests["request_arrived_at"].min() + dur.cumsum()   # steps run back to back
+    first = (r.requests["request_arrived_at"] + r.requests["prefill_e2e_time"]).values
+    last = (r.requests["request_arrived_at"] + r.requests["request_e2e_time"]).values
+    # The steps that produced each request's first and last token.
+    i = np.abs(end[None, :] - first[:, None]).argmin(axis=1)
+    j = np.abs(end[None, :] - last[:, None]).argmin(axis=1)
+    return [dur[a + 1:b + 1] for a, b in zip(i, j)]
+
+tbt = {c: tbt_per_request(r) for c, r in loaded.items()}
+
+# Sanity check: each request's gaps add up to its decode time (= TPOT x output tokens).
+for c, r in loaded.items():
+    decode_time = r.tpot * r.requests["request_num_decode_tokens"]
+    err = max(abs(g.sum() - d) for g, d in zip(tbt[c], decode_time))
+    print(f"chunk_size={c}: largest mismatch {1e3 * err:.3f} ms")
 
 # %% [markdown]
-# Look at the **chat** requests first. None of them has a long prompt, yet with the
-# large budget their TPOT is about 10% worse, only because they share steps with
-# *other users'* long prefills. The **documents** suffer most at the tail: they
-# produce only 32 tokens, so a single 650 ms stall caused by another document's
-# prefill raises their average TPOT a lot.
+# ### One user's view
 #
-# Note that TPOT is an *average* over a request's output tokens, so it hides how
-# bumpy the stream is. A chat user who sees one 650 ms freeze among 255 smooth
-# tokens has a TPOT only a few ms higher, but certainly notices the freeze. This
-# is why the scenario above measured the longest gap directly, and why some
-# systems also report the distribution of the **time between tokens** (TBT): the
-# gap before *each* output token, rather than one average per request.
-#
-# We can compute TBT from the recorded steps. A decoding request receives one token
-# per step, so each decode token in a step waited exactly as long as that step took.
-# A step with 20 decode tokens therefore contributes 20 gaps of its duration:
+# Pick a typical chat user: the one with the median TPOT among chat requests when
+# `chunk_size=4096`. Both runs replay the same trace, so we can follow the *same*
+# user under both budgets and plot the gap before each of their tokens:
 
 # %%
-tbt = {c: np.repeat(r.steps["batch_execution_time"].values,
-                    r.steps["batch_num_decode_tokens"].values) for c, r in loaded.items()}
-pd.DataFrame({f"chunk_size={c}": {
-    "mean TPOT (ms)": round(1e3 * loaded[c].tpot.mean()),
-    "mean TBT (ms)": round(1e3 * x.mean()),
-    "TBT p50 (ms)": round(1e3 * np.percentile(x, 50)),
-    "TBT p99 (ms)": round(1e3 * np.percentile(x, 99)),
-    "tokens waiting > 300 ms": f"{(x > 0.3).mean():.1%}",
-} for c, x in tbt.items()})
+is_chat = loaded[4096].requests["request_num_prefill_tokens"].values < 1000
+chat_ids = np.where(is_chat)[0]
+user = chat_ids[np.argsort(loaded[4096].tpot.values[chat_ids])[len(chat_ids) // 2]]
+
+fig, ax = plt.subplots(1, 2, figsize=(11, 3.4), sharey=True)
+for a, (c, color) in zip(ax, ((4096, "C3"), (512, "C2"))):
+    gaps, tpot = 1e3 * tbt[c][user], 1e3 * loaded[c].tpot[user]
+    a.plot(np.arange(2, len(gaps) + 2), gaps, color=color, lw=1, label="TBT (each gap)")
+    a.axhline(tpot, color="k", ls="--", lw=1, label=f"TPOT = {tpot:.0f} ms (the average)")
+    a.legend(loc="upper right", fontsize=8)
+    a.set(xlabel="output token", title=f"chunk_size={c}", ylim=(0, 950))
+    print(f"chunk_size={c}: TPOT {tpot:.0f} ms, longest gap {gaps.max():.0f} ms, "
+          f"{(gaps > 500).sum()} gaps longer than 0.5 s")
+ax[0].set_ylabel("time before this token (ms)")
+fig.suptitle(f"The same chat user (request {user}), token by token", y=1.0)
+fig.tight_layout()
 
 # %% [markdown]
-# The mean TBT matches the mean TPOT, as it should: both are averages of the same
-# gaps. The two budgets differ by less than 10% on average, yet the percentiles
-# tell a very different story. A **cumulative distribution function** (CDF) shows
-# all of it at once: for every gap length on the x-axis, the curve gives the
-# fraction of tokens whose gap was at most that long. A curve that rises steeply and
-# early means consistently short gaps; a curve that creeps toward 1 far to the
-# right means a tail of long waits.
+# With `chunk_size=4096`, this user's TPOT is about 90 ms. Taken at face value,
+# that sounds like a steady, slightly slow stream. The plot shows something else
+# entirely: most tokens arrive after only ~40 ms, but every time another user's
+# document is prefilled, the text **freezes for ~0.7 s**, and that happens over and
+# over during a single answer. No individual gap is anywhere near 90 ms; the
+# average is a mix of very fast and very slow.
+#
+# With `chunk_size=512`, the TPOT is barely lower (87 ms instead of 91 ms), yet
+# the experience is completely different: the gaps alternate between ~40 ms and ~105 ms, and the
+# text never freezes. TPOT barely tells these two users apart.
+#
+# This user is not unlucky. Across all chat users:
+
+# %%
+rows = {}
+for c, r in loaded.items():
+    longest = np.array([g.max() for g in tbt[c]])[chat_ids]
+    freezes = np.array([(g > 0.5).sum() for g in tbt[c]])[chat_ids]
+    rows[f"chunk_size={c}"] = {
+        "TPOT p50 (ms)": round(1e3 * np.median(r.tpot.values[chat_ids])),
+        "TPOT p99 (ms)": round(1e3 * np.percentile(r.tpot.values[chat_ids], 99)),
+        "longest gap per user, p50 (ms)": round(1e3 * np.median(longest)),
+        "users with a freeze > 0.5 s": f"{(freezes > 0).mean():.0%}",
+        "freezes per user, p50": int(np.median(freezes)),
+    }
+pd.DataFrame(rows)
+
+# %% [markdown]
+# Even the *p99* TPOT of the chat users, the worst 1% by average, stays near
+# 100 ms without chunking. Yet almost every chat user sits through more than a
+# dozen freezes of over half a second. None of these users has a long prompt
+# themselves: every freeze is caused by *other users'* prefills. This
+# **interference** between requests is what makes it hard to give latency
+# guarantees on a shared GPU.
+#
+# ### All tokens at once: the TBT distribution
+#
+# Instead of one user, we can pool the TBTs of every token of every request and
+# look at their distribution. A **cumulative distribution function** (CDF) shows
+# it at a glance: for every gap length on the x-axis, the curve gives the fraction
+# of tokens whose gap was at most that long. A curve that rises steeply and early
+# means consistently short gaps; a curve that creeps toward 1 far to the right
+# means a tail of long waits.
 
 # %%
 fig, ax = plt.subplots(figsize=(8, 3.6))
 for c, color in ((512, "C2"), (4096, "C3")):
-    x = np.sort(1e3 * tbt[c])
+    x = np.sort(1e3 * np.concatenate(tbt[c]))
     ax.plot(x, np.arange(1, len(x) + 1) / len(x), color=color, lw=2, label=f"chunk_size={c}")
-    ax.axvline(1e3 * tbt[c].mean(), color=color, ls="--", lw=1)
-    ax.text(1e3 * tbt[c].mean() + 8, 0.05 if c == 512 else 0.15, f"mean ({c})",
-            color=color, fontsize=8)
+    ax.axvline(x.mean(), color=color, ls="--", lw=1)
+    ax.text(x.mean() + 8, 0.05 if c == 512 else 0.15, f"mean ({c})", color=color, fontsize=8)
+    print(f"chunk_size={c}: TBT p50 {np.percentile(x, 50):.0f} ms, p99 {np.percentile(x, 99):.0f} ms, "
+          f"tokens waiting > 0.3 s: {(x > 300).mean():.1%}")
 ax.set(xlabel="time between tokens (ms)", ylabel="fraction of tokens", xlim=(0, 800),
-       ylim=(0, 1.02), title="Time between tokens at 4 req/s (CDF)")
+       ylim=(0, 1.02), title="Time between tokens at 4 req/s, all tokens (CDF)")
 ax.legend(loc="center right")
 fig.tight_layout()
 
@@ -548,24 +612,20 @@ fig.tight_layout()
 # The two dashed lines (the averages) are close, but the curves are not:
 #
 # - **`chunk_size=4096`** (red) is *faster* for most tokens: about 80% of them
-#   come from plain decode steps of ~40 ms, because most steps contain no prefill at
-#   all. But the curve then flattens and only reaches 1 at ~700 ms. Those are the
-#   tokens stuck behind a whole 3,800-token prefill, about one token in twenty. A
-#   user reading the output sees the text freeze for most of a second, again and
-#   again.
+#   come from plain decode steps of ~40 ms. But the curve then flattens and only
+#   reaches 1 at ~700 ms. Those are the tokens stuck behind a whole 3,800-token
+#   prefill, about one token in twenty.
 # - **`chunk_size=512`** (green) has two steps: ~40% of tokens come from plain
 #   decode steps (~40 ms), and the rest from steps that carry a prefill chunk
-#   (~105 ms). Prefill work is spread over many steps, so more tokens wait a bit
-#   longer, but the curve reaches 1 at ~110 ms: *no* token waits long.
+#   (~105 ms). More tokens wait a bit longer, but the curve reaches 1 at ~110 ms:
+#   *no* token waits long.
 #
-# The average cannot tell these two experiences apart; the CDF (or a high
-# percentile like p99) can. This is why serving systems state latency targets as
-# percentiles, and why the TBT tail, not the mean TPOT, is what chunked prefill
-# improves.
-#
-# This **interference** between requests is what makes it hard to give latency
-# guarantees on a shared GPU, and chunked prefill is the first line of defense
-# against it.
+# **Takeaway.** TPOT (one average per request) tells you how long the whole answer
+# takes to stream; TBT (one value per token) tells you how *smooth* the stream is.
+# Percentiles of TPOT are taken across requests and still average away the
+# freezes, while percentiles of TBT, such as p99 TBT, expose them. This is why
+# serving systems track TBT when they care about smooth streaming, and why the TBT
+# tail is what chunked prefill improves most.
 #
 # ## Summary
 #
@@ -637,6 +697,15 @@ lsg.quiz([
                  "Decode requests are starved"],
      "answer": 0,
      "explain": "A step has a fixed cost of loading the weights. With tiny budgets that cost is paid for very few tokens, so prompts arrive faster than they can be prefilled, and the queue grows."},
+    {"q": "A chat user's TPOT is 90 ms. What can you conclude about the gaps between their tokens?",
+     "options": ["Every gap was about 90 ms",
+                 "The gaps average 90 ms, but individual gaps can be much shorter or much longer",
+                 "No gap was longer than 90 ms"],
+     "answer": 1,
+     "explain": "TPOT is one average per request. In this lecture, a user with a ~90 ms TPOT received most tokens after ~40 ms and sat through freezes of ~0.7 s."},
+    {"q": "Which metric best exposes generation stalls (the text freezing mid-answer)?",
+     "options": ["Mean TPOT", "p99 TPOT across requests", "p99 TBT across tokens"], "answer": 2,
+     "explain": "TPOT averages each request's gaps, so even its p99 across requests hides freezes. TBT has one value per token, so its tail shows the freezes directly."},
     {"q": "Chat requests with short prompts get a worse p99 TPOT when the workload also contains long documents. Why?",
      "options": ["Their own prompts become longer",
                  "They share steps with other users' long prefills (interference)",
