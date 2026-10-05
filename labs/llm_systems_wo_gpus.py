@@ -163,6 +163,15 @@ class Result:
             "makespan (s)": makespan,
         }).round(3)
 
+    @property
+    def steps(self) -> pd.DataFrame:
+        """One row per forward pass (needs ``keep_steps=True``): tokens, batch size,
+        and ``batch_execution_time`` (s), in execution order."""
+        f = glob.glob(str(self.out_dir / "**" / "batch_metrics.csv"), recursive=True)
+        if not f:
+            raise FileNotFoundError("batch_metrics.csv not found; rerun with keep_steps=True")
+        return pd.read_csv(f[0]).drop(columns=["Batch Id", "replica"], errors="ignore")
+
     def cdf(self, metric: str = "batch_size") -> pd.DataFrame:
         """CDF of a batch-level metric (needs ``store_plots=True``).
 
@@ -187,6 +196,7 @@ def simulate(
     prefill_tokens=512,
     decode_tokens=128,
     trace: str | Path | None = None,
+    arrival_times=None,
     scheduler: str = "vllm_v1",
     batch_size_cap: int = 128,
     chunk_size: int = 512,
@@ -195,12 +205,15 @@ def simulate(
     replica_groups: dict | str | Path | None = None,
     seed: int = 42,
     store_plots: bool = False,
+    keep_steps: bool = False,
     extra: dict | None = None,
     verbose: bool = False,
 ) -> Result:
     """Run one simulation and return its per-request metrics.
 
     qps=None sends every request at t=0 (an offline / batch workload).
+    arrival_times (seconds, one per request) overrides qps with exact arrivals.
+    keep_steps=True records every forward pass, readable as ``Result.steps``.
     Only the ``vllm_v1`` replica scheduler works in the simulator today; its
     ``chunk_size`` and ``batch_size_cap`` knobs emulate the older policies.
     """
@@ -232,7 +245,15 @@ def simulate(
         "--replica_scheduler_config_type": scheduler,
         "--cache_config_enable_prefix_caching": prefix_caching,
     }
-    if qps is None:
+    if arrival_times is not None:
+        # The interval generator replays the gaps between consecutive rows and
+        # skips the first one, so a leading 0 makes request i arrive at arrival_times[i].
+        at = WORK_DIR / "traces" / ("arrivals_" + hashlib.md5(str(list(arrival_times)).encode()).hexdigest()[:12] + ".csv")
+        at.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"arrived_at": [0.0] + [float(x) for x in arrival_times]}).to_csv(at, index=False)
+        args["--interval_generator_config_type"] = "trace"
+        args["--trace_request_interval_generator_config_trace_file"] = at
+    elif qps is None:
         args["--interval_generator_config_type"] = "static"
     else:
         args["--interval_generator_config_type"] = "poisson"
@@ -267,6 +288,7 @@ def simulate(
     args["--metrics_config_no_timestamp"] = True
     args["--metrics_config_store_plots"] = store_plots
     args["--metrics_config_store_utilization_metrics"] = False
+    args["--metrics_config_keep_individual_batch_metrics"] = keep_steps
 
     cmd = [sys.executable, "-m", f"{BACKEND_MODULE}.main"]
     for k, v in args.items():

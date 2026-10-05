@@ -24,6 +24,7 @@ Downloads the simulator into `$LSG_BACKEND_DIR` (default
 | `num_requests` | `100` | requests to simulate |
 | `prefill_tokens`, `decode_tokens` | `512`, `128` | int (all requests identical) or a sequence per request |
 | `trace` | `None` | path to a trace CSV; overrides the two arguments above |
+| `arrival_times` | `None` | exact arrival time (s) of each request; overrides `qps` |
 | `scheduler` | `"vllm_v1"` | replica scheduler (only `vllm_v1` works today) |
 | `batch_size_cap` | `128` | max requests per batch |
 | `chunk_size` | `512` | token budget per step (chunked prefill) |
@@ -31,6 +32,7 @@ Downloads the simulator into `$LSG_BACKEND_DIR` (default
 | `prefix_caching` | `False` | enable automatic prefix (KV) caching |
 | `replica_groups` | `None` | dict or JSON path for heterogeneous / PD-disaggregated clusters |
 | `seed` | `42` | random seed for arrivals |
+| `keep_steps` | `False` | record every forward pass, readable as `Result.steps` |
 | `extra` | `None` | `{"--any_simulator_flag": value}` passed through verbatim |
 | `verbose` | `False` | print the command line and simulator log |
 
@@ -42,6 +44,7 @@ Downloads the simulator into `$LSG_BACKEND_DIR` (default
 | `summary()` | Series | TTFT/TPOT p50/p99, E2E p50, queueing p50, throughput, makespan |
 | `ttft`, `tpot`, `e2e` | Series | per-request latencies in seconds |
 | `kv_cache_tokens` | int | KV-cache capacity of one replica, in tokens |
+| `steps` | DataFrame | one row per forward pass, in order: prefill/decode tokens, batch size, `batch_execution_time` (needs `keep_steps=True`) |
 | `cdf(metric)` | DataFrame | CDF of a batch-level metric such as `batch_size` or `batch_num_tokens` |
 | `out_dir` | Path | raw simulator output directory |
 | `config` | dict | flags the run used |
