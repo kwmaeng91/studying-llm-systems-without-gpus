@@ -14,12 +14,13 @@
 # **Prefill**
 # : The model reads the whole prompt in one forward pass and writes the
 #   key/value (KV) vectors of every prompt token into the **KV cache**. It
-#   ends by emitting the first output token. This is your model ``reading'' and understanding your question.
+#   ends by emitting the first output token. This is the model "reading" and
+#   understanding your question.
 #
 # **Decode**
 # : The model generates the remaining tokens one at a time. Each step does a
 #   forward pass for a *single* new token per request, reusing the KV cache.
-#   This is your model responding to your question.
+#   This is the model responding to your question.
 #
 # Users experience these two phases as two separate latencies:
 #
@@ -29,8 +30,11 @@
 # | **TPOT** (time per output token) | average gap between later tokens | decode steps |
 # | **E2E latency** | arrival → last token | ≈ TTFT + TPOT × (output tokens − 1) |
 #
-# TTFT is important because when you ask ChatGPT a question, you expect it to start responding soon. If it doesn’t start producing anything, you may wonder whether it’s broken.
-# TPOT is important because once ChatGPT starts generating a response, it should generate tokens fast enough to keep up with your reading speed (or faster).
+# TTFT is important because when you ask ChatGPT a question, you expect it to
+# start responding soon. If it doesn't produce anything, you may wonder whether
+# it's broken. TPOT is important because once ChatGPT starts responding, it should
+# generate tokens at least as fast as you can read them.
+#
 # In this lecture you will measure all three in simulation and work out *why*
 # prefill and decode scale so differently.
 #
@@ -49,8 +53,8 @@
 # serving system on the CPU.
 #
 # The simulations in these lectures rely on
-# [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) (Kim et al., IISWC 2026), which extends Microsoft's
-# [Vidur](https://github.com/microsoft/vidur) LLM inference simulator
+# [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) (Kim et al., IISWC 2026),
+# which extends Microsoft's [Vidur](https://github.com/microsoft/vidur) LLM inference simulator
 # (Agrawal et al., MLSys 2024). We use them as the simulation engine.
 # `llm_systems_wo_gpus` (imported as `lsg`) is an easy-to-use wrapper we built on
 # top of them just for these lectures: it installs the simulator, turns its hundreds
@@ -87,8 +91,8 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 # %% [markdown]
 # ## The system we simulate
 #
-# We simulate serving **Qwen2.5-32B-Instruct** on **two NVIDIA A100-80GB GPUs**. Its 32.8B
-# parameters take 65.5 GB in 16-bit precision, which would leave almost no room for
+# We simulate serving **Qwen2.5-32B-Instruct** on **two NVIDIA A100-80GB GPUs**.
+# Its 32.8B parameters take 65.5 GB in 16-bit precision, which would leave almost no room for
 # the KV cache on one 80 GB GPU. So the model is split across two GPUs with
 # *tensor parallelism* (TP-2), and each GPU holds half of every weight matrix.
 #
@@ -187,10 +191,13 @@ for n in (1024, 4096, 16000):
           f"-> GPUs run at {bound / sim:.0%} of peak FLOP/s")
 
 # %% [markdown]
-# ``compute bound'' numbers show how quickly the prefill would finish if all compute units were fully utilized (i.e., if each GPU actually sustained 312 TFLOP/s).
-# ``simulated'' numbers show how long it actually took. You'll probably see the two numbers differ by roughly 2$\times$, which means that prefill keeps the GPUs' math units only about half busy.
-# This is typical of real kernels---it is very difficult to fully utilize the compute units. Doubling the prompt doubles the work, and so doubles TTFT (attention
-# adds a term that grows with $N^2$, but at these context lengths they are insignificant).
+# The "compute bound" numbers show how quickly prefill would finish if all compute
+# units were fully utilized (i.e., if each GPU actually sustained 312 TFLOP/s). The
+# "simulated" numbers show how long it actually took. The two differ by roughly
+# 2$\times$, which means prefill keeps the GPUs' math units only about half busy.
+# This is typical of real kernels: it is very difficult to fully utilize the compute
+# units. Doubling the prompt doubles the work, and so doubles TTFT. (Attention adds
+# a term that grows with $N^2$, but at these context lengths it is insignificant.)
 #
 # ## Decode is memory-bound
 #
@@ -210,17 +217,23 @@ print(f"memory bound {1e3 * bound:.1f} ms, compute bound "
       f"{1e3 * 2 * params / (n_gpus * a100_flops):.2f} ms, simulated TPOT {s['TPOT p50 (ms)']:.1f} ms")
 
 # %% [markdown]
-# Again, ``compute bound'' shows how long it would have taken if all the compute units were fully utilized.
-# Comparing it with the ``simulated'' number, it should be clear that the bottleneck is elsewhere (i.e., most compute units are idle).
-# In fact, decode is memory-bound: bringing model weights in from memory takes up most of the time, while the GPU compute units are mostly sitting idle, waiting for the weights to arrive.
-# ``memory bound'' numbers show how long it would have taken if the GPU's HBM bandwidth were fully utilized when reading model weights from memory.
-# This number should be closer to the ``simulated'' number, confirming that decode is indeed memory-bound.
-# However, you'll still see a ~2$\times$ difference because, at batch size one, many kernels are too small to reach peak bandwidth,
-# and every layer incurs fixed costs (kernel launches, normalization layers, and communication between the two GPUs).
+# Again, "compute bound" shows how long the step would take if all the compute
+# units were fully utilized. Compared with the "simulated" number, it is clear that
+# the bottleneck is elsewhere (i.e., most compute units are idle). In fact, decode
+# is memory-bound: loading the model weights from memory takes most of the time,
+# while the compute units sit idle, waiting for the weights to arrive.
+#
+# "Memory bound" shows how long the step would take if each GPU's HBM bandwidth
+# were fully utilized while reading the weights. This number is much closer to the
+# "simulated" number, confirming that decode is indeed memory-bound. There is still
+# a ~2$\times$ gap because, at batch size one, many kernels are too small to reach
+# peak bandwidth, and every layer incurs fixed costs (kernel launches,
+# normalization layers, and communication between the two GPUs).
 #
 # This is also why TPOT ignores the prompt length: the KV cache of a 16K-token
 # prompt is $2 \times 64\ \text{layers} \times 8\ \text{KV heads} \times 128 \times 2\ \text{B} \times 16\text{K} \approx 4\ \text{GB}$,
-# and reading it from memory adds tiny overheads to the 65.5 GB of weights that needs to be read (with longer prompts this becomes a bigger issue, which we discuss later).
+# so reading it adds only a small overhead to reading the 65.5 GB of weights.
+# (With longer prompts this becomes a bigger issue, which we discuss later.)
 #
 # ## Decode scales with the output
 #
@@ -280,8 +293,8 @@ fig.tight_layout()
 # extreme case, a 15K-token document with a short 64-token answer such as a
 # summary, tips the balance toward prefill.
 #
-# This is why so much (but not all!) LLM serving research targets decode: it is where a single
-# request spends its time, and it is also where the GPU's math units sit idle.
+# This is why so much (but not all!) LLM serving research targets decode: it is
+# where a single request spends its time, and it is also where the GPU's math units sit idle.
 #
 # ## Summary
 #
