@@ -372,56 +372,6 @@ print(f"longest gap between two tokens for a chat user: {1e3 * gap_chunk:.0f} ms
 # load the weights, and **a step that mixes them uses both**. Chunked prefill gets
 # the efficiency of batching (policy 3) without its long steps.
 #
-# The timeline below puts the four policies side by side. Each bar is one step:
-# orange steps only decode, blue steps contain prefill work. The triangle marks the
-# document's first token. (The simulator's scheduler always builds steps under a
-# token budget, so it cannot run policies 1 and 2 directly. We draw them from the
-# step times measured above.)
-
-# %%
-def first_step_end_after(t, step):
-    return np.ceil(t / step) * step   # decode steps of length `step` from t=0
-
-t0 = first_step_end_after(2.0, decode_step)  # when the step running at t=2 s ends
-timelines = {
-    "1. new request waits": (
-        [(t, decode_step, "decode") for t in np.arange(0, 3.2, decode_step)], ttft_wait + 2.0),
-    "2. pause decodes,\n    prefill first": (
-        [(t, decode_step, "decode") for t in np.arange(0, t0, decode_step)]
-        + [(t0, prefill_time, "prefill")]
-        + [(t, decode_step, "decode") for t in np.arange(t0 + prefill_time, 3.2, decode_step)],
-        t0 + prefill_time),
-}
-for name, (r, st) in {"3. batch together\n    (no chunking)": (r_mixed, steps_mixed),
-                      "4. chunked prefill\n    (512 tokens/step)": (r_chunk, steps_chunk)}.items():
-    timelines[name] = ([(s, d, "prefill" if p > 0 else "decode") for s, d, p in
-                        zip(st["start (s)"], st["batch_execution_time"], st["batch_num_prefill_tokens"])],
-                       2.0 + r.ttft.iloc[16])
-
-fig, ax = plt.subplots(figsize=(10, 3.6))
-for i, (name, (steps, first_token)) in enumerate(timelines.items()):
-    for start, dur, kind in steps:
-        ax.barh(i, dur, left=start, height=0.6, color="C0" if kind == "prefill" else "C1",
-                edgecolor="white", linewidth=0.8)
-    if first_token < 3.0:
-        ax.plot(first_token, i - 0.45, "kv", ms=8)
-    else:
-        ax.text(2.98, i, f"first token at {first_token:.1f} s →", ha="right", va="center",
-                fontsize=8, bbox=dict(facecolor="white", edgecolor="none", pad=1))
-ax.axvline(2.0, color="k", ls=":", lw=1)
-ax.text(2.0, -0.8, "document arrives ", ha="right", va="center", fontsize=8)
-ax.set(xlim=(1.8, 3.0), ylim=(len(timelines) - 0.5, -1.1), xlabel="time (s)",
-       yticks=range(len(timelines)), yticklabels=list(timelines))
-ax.grid(axis="y", visible=False)
-from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
-ax.legend(handles=[Patch(color="C1", label="decode-only step"),
-                   Patch(color="C0", label="step with prefill work"),
-                   Line2D([], [], color="k", marker="v", ls="", label="document's first token")],
-          loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=3, frameon=False)
-fig.tight_layout()
-
-# %% [markdown]
 # ## Choosing the chunk size
 #
 # The token budget is a knob, and it trades one latency against the other:
