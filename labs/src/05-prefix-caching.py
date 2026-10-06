@@ -55,16 +55,16 @@
 #
 # ### The same text also repeats across users
 #
-# Repetition is not confined to one conversation. *Every* user of an application
-# sends that same system prompt, so the opening thousand tokens of every request the
-# deployment receives are token-for-token identical, even though those users have
+# Repetition is not confined to one conversation. *Every* request to an LLM-based application
+# is prepended with the system prompt, so the opening thousand tokens of every request 
+# are token-for-token identical, even though those users have
 # nothing to do with each other.
 #
 # It helps to see what that text actually is. The excerpts below are decoded from
 # the recorded traces of [OWL](https://github.com/camel-ai/owl) (Hu et al., NeurIPS
 # '25), the open-source multi-agent system we take apart in lecture 6 — this is
 # verbatim what it sent to the model, elided where marked. Every request its
-# web-search worker makes opens with a **system prompt**:
+# web-search worker makes opens with the following **system prompt**:
 #
 # ```text
 # You are a helpful assistant that can search the web, extract webpage content,
@@ -124,22 +124,19 @@
 # [...]
 # ```
 #
-# None of this depends on the user. The web-search worker's prompt runs to about
-# 1,500 tokens before the actual task is even mentioned, roughly two thirds of it
-# the two blocks above, repeated identically in every turn that worker takes and in
-# every task the system runs.
-#
-# The fourth common case has no quotable form: a document that many people ask
+# Whenever the AI agent needs to do a web-search, the query to the web-search agent is
+# prepended with about 1,500 tokens (shown above) before the actual task is even mentioned. 
+# 
+# Common prefixes can also appear when there is a document that many people ask
 # about — the same manual, contract or repository file pasted above a different
 # question each time. vLLM's documentation gives exactly that as the canonical case
 # for turning prefix caching on.
 #
-# How much of a real workload this covers has been measured. Mooncake (Qin et al.,
-# FAST '25), the serving system behind the Kimi chatbot, reports from its production
+# Mooncake (Qin et al., FAST '25), the serving system behind the Kimi chatbot, reports from its production
 # traces that roughly half of all prompt tokens are reusable when the cache has room
 # — about 40% on conversational traffic, where most of the reuse is a user's own
 # history, and about 59% on tool- and agent-style traffic, where those long,
-# repetitive system prompts dominate. The same deployment's hit rate falls below 20%
+# repetitive system prompts are reused across users. The same deployment's hit rate falls below 20%
 # at peak hours, when the cache does not have room; we will reproduce that effect
 # later in the lecture.
 #
@@ -195,20 +192,11 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 #
 # ### Step 1: the KV cache is already paged
 #
-# Before anything can be reused, it has to be addressable. The obvious design gives
-# each request one contiguous slab of KV cache, sized for the longest answer it
-# might produce. Most of that slab is never used, and the leftovers are too
-# fragmented for the next request: the vLLM authors measured existing systems
-# wasting 60–80% of their KV memory this way.
-#
-# **PagedAttention** (Kwon et al., SOSP '23), the idea vLLM was built around,
-# borrows the fix from virtual memory. The KV cache is a pool of fixed-size
-# **blocks** (also called pages), and a request is a *list of block ids* that need
-# not be adjacent in memory. A request is handed one more block whenever it fills
-# the last one, so the server over-allocates by at most one block per request, and
-# any request can use any free block.
-#
-# Real block sizes are small: vLLM defaults to 16 tokens (`--block-size`),
+# We did not explain how KV cache works in this lecture series, but KV are stored in a granularity of **blocks** (also called pages).
+# The idea of strong KV in blocks were first introduced in the **PagedAttention** (Kwon et al., SOSP '23) paper, which was the paper vLLM was built around.
+# You can think of blocks as pages in virtual memory.
+# 
+# Block sizes can be configured: vLLM defaults to 16 tokens (`--block-size`),
 # TensorRT-LLM to 32, and SGLang to 1 (`--page-size`). Larger blocks mean less
 # bookkeeping per token and more efficient transfers when blocks move between
 # memories; smaller blocks waste less space in the last, partial block and — as the
@@ -224,7 +212,7 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # ```
 #
 # so a block's name depends on its own tokens *and* on the entire history before
-# it. Two requests get the same name for their 5th block only if their first 80
+# it. Two requests get the same name for their 5th block only if their first 80 (16$\times$5)
 # tokens are identical.
 #
 # When a request arrives, the scheduler hashes its prompt block by block and looks
@@ -247,16 +235,13 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 #
 # 1. **Matching is on a prefix, not on a substring.** The chained hash means one
 #    different token early in the prompt gives every later block a different name,
-#    even if the rest of the text is identical. Shared text that comes *after*
-#    something variable is not reusable.
+#    even if the rest of the text is identical. Only the stream of tokens that are bit-by-bit identical from the beginning is a hit.
 # 2. **The last, partial block is not named.** Only full blocks are hashed, so
-#    hits are rounded down to a multiple of the block size.
-# 3. **Cached blocks compete for memory with running requests.** They sit in the
-#    same pool, so when a request needs a block and none is free, the server has to
-#    evict one — and the natural candidate is a block no running request is using,
-#    which is exactly what a cached prefix is. Holding on to a prefix is therefore
-#    never guaranteed; it is a bet against the memory being wanted for something
-#    else, and we measure how that bet goes later in the lecture.
+#    hits are rounded down to a multiple of the block size. This is a small artifact that we will not care too much, unless the block size is huge (which is usually not).
+# 3. **Cached blocks compete for memory with running requests.** Cached prefixes and KV cache for running requests sit in the
+#    same pool, so when a request needs more space for its KV cache, the server has to
+#    evict existing blocks — and the natural candidate is a block no running request is using,
+#    which is exactly what a cached prefix is. Thus, prefixes can be evicted, in which case it cannot be reused even when a request with the matching prefix arrives in the future.
 #
 # ### The same idea, a different data structure
 #
