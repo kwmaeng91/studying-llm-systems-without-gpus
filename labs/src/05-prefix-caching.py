@@ -255,74 +255,23 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # ### The same idea, a different data structure
 #
 # A flat hash table is not the only way to answer "which prefixes do I already
-# have". SGLang keeps them in a **radix tree** over token ids — *RadixAttention*
-# ([Zheng et al., NeurIPS '24](https://arxiv.org/abs/2312.07104)). Each edge carries a run of tokens and the KV behind
-# it, a lookup is a longest-prefix walk from the root, and eviction is LRU on the
-# leaves. Because the tree matches token by token rather than block by block, it
-# does not round a hit down to a block boundary, and it makes the sharing structure
-# explicit: one shared system prompt is a single path near the root with a subtree
-# of conversations hanging off it.
-#
-# The two designs are observably similar — both reuse exactly the longest matching
-# prefix — and the differences are in granularity, bookkeeping cost, and how
-# naturally eviction policies fit. The hashed-block scheme is what vLLM ships (and
-# enables by default in its V1 engine), and it is what our simulator implements.
-#
-# ### Reuse that is not a prefix
-#
-# "Prefix only" is a real limitation, and the workload it hurts most is
-# retrieval-augmented generation: ten documents retrieved in a different order for
-# every user share a great deal of text and almost no prefixes. Two lines of work
-# relax the restriction:
-#
-# - **Prompt Cache** ([Gim et al., MLSys '24](https://proceedings.mlsys.org/paper_files/paper/2024/hash/a66caa1703fe34705a4368c3014c1966-Abstract-Conference.html)) has the application declare reusable
-#   *segments* in a schema, precomputes each segment's attention state once, and
-#   re-encodes positions when a segment lands at a new offset.
-# - **CacheBlend** ([Yao et al., EuroSys '25](https://arxiv.org/abs/2405.16444)) concatenates the cached KV of several
-#   chunks and then selectively recomputes a small fraction of the tokens, to repair
-#   the attention those chunks never paid to each other. It reports 2–3× lower TTFT
-#   at what it measures as a negligible quality drop.
-#
-# Both trade exactness for reuse: a block's keys and values were computed in a
-# context that no longer matches, so the reconstruction is an approximation rather
-# than the identity we got for free with prefixes. That is why strict prefix
-# matching is what production engines turn on by default, and why the rest of this
-# lecture stays with it.
-#
+# have". SGLang keeps them in a **radix tree** over token ids. If you are interested, read the *RadixAttention* paper
+# ([Zheng et al., NeurIPS '24](https://arxiv.org/abs/2312.07104)).
+# Our simulator implements the hashed-block scheme from vLLM.
+# 
 # ### Where the cached blocks live
 #
-# It is tempting to say "the KV is still in GPU memory", and in these labs that is
-# literally true: one pool of blocks per replica, in HBM, and an evicted block is
-# gone. Production systems treat HBM as only the fastest tier of a hierarchy. vLLM
+# Our simulator simulates the simplest design, where the KV and prefix caches are in GPU memory.
+# When the GPU memory is full, something needs to be evicted.
+# Production systems can be much more complex. vLLM
 # can offload blocks to CPU memory; [LMCache](https://github.com/LMCache/LMCache)
 # adds a reusable KV store with local and remote backends; and Mooncake
-# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)), which serves the Kimi chatbot, goes furthest — it pools the CPU DRAM,
-# SSDs and RDMA NICs of an entire GPU cluster into one disaggregated KVCache, holds
-# paged blocks there under LRU or LFU, and has its global scheduler send each
-# request to where its prefix already lives.
+# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)), which serves the Kimi chatbot, goes furthest — the KV cache
+# may live in CPU DRAM, SSDs, or even remote nodes.
+# In such a complex setup, requests must be routed to the node where relevant KV lives, or alternatively,
+# the KV must be pooled from CPU DRAM, SSDs, or remote nodes over the network, which adds extra overhead.
+# Sometimes, doing so is still beneficial; in other times, just redoing the prefill can be better.
 #
-# The arithmetic explains why anyone would build that. A token of KV cache for our
-# model is 256 KB (lecture 2), so a 9,000-token prefix is about 2.3 GB. Re-prefilling
-# it costs a second or two of GPU time (lecture 4 measured ~650 ms for 3,800
-# tokens); fetching it over a 25 GB/s link costs under a tenth of a second. Moving
-# bytes is roughly an order of magnitude cheaper than recomputing them, which is
-# what makes a slower, larger tier worth having. For short prefixes the comparison
-# flips — the transfer's fixed costs dominate — so real systems decide per request,
-# and that decision is itself a research area.
-#
-# ### What the simulator models
-#
-# The strict form of the scheme above: one GPU-resident pool per replica, 16-token
-# blocks named by a chained hash, longest-prefix matching, LRU eviction, and nothing
-# below HBM. There is no CPU or SSD tier and no sharing between replicas, so every
-# KV cache hit rate in this lecture is what a single GPU achieves on its own. A deployment
-# with a CPU/SSD tier or a cluster-wide cache would do better; one that isolates
-# caches per tenant (see the end of the lecture) would do worse.
-#
-# One practical requirement: hashing needs the actual *token ids*, so the traces in
-# this lecture carry a `token_ids` column, and a trace with only lengths (lectures
-# 1–4) can never produce a hit. Prefix caching is off by default in `lsg.simulate`
-# and switched on with `prefix_caching=True`.
 
 # %% [markdown]
 # ## A multi-turn workload
@@ -333,12 +282,16 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # released only after turn *k* finishes (`dep`), plus a **think time** standing in
 # for the human reading the answer.
 #
-# The token ids themselves are random, which is the point: two requests share a
-# prefix only when we make them literally identical.
+# To simulate how prefix cache works, we need the *token ids*. (Remember, only the same set of token ids cause a prefix hit!)
+# So, the traces in this lecture carry a `token_ids` column, 
+# instead of only specifying the lengths as in lectures 1-4.
+# Prefix caching is off by default in `lsg.simulate`
+# and switched on with `prefix_caching=True`.
+# We generate requests with random token ids, so that prefix cache hit only occurs when we intended.
 #
-# For simplicity there is no system prompt in this first workload: turn 0's prompt
+# For simplicity, we do not model the system prompt. Turn 0's prompt
 # is just the user's question, so the only thing two requests can share is the
-# history of one conversation. A shared preamble is the next experiment.
+# history of one conversation. A shared preamble (system prompt) comes in the next experiment.
 #
 # This is also a deliberately clean workload — fixed-length turns, every turn
 # appending to the one before, nothing matching by accident. Real conversations are
@@ -412,11 +365,6 @@ pd.DataFrame({k: {**r.summary()[cols], "prompt tokens computed": r.requests["req
 # TPOT improves as well, for the reason lecture 3 gave: shorter prefills mean
 # fewer steps that carry a big prefill chunk alongside the decodes.
 #
-# The 83% comes from the shape of this workload — six turns that only ever append —
-# not from prefix caching itself. A real deployment's hit rate is decided by the
-# shape of its prompts and by how long a prefix survives in memory, which is what
-# the next three sections are about.
-#
 # The gain is not spread evenly over the conversation. Let's look per turn.
 
 # %%
@@ -444,9 +392,7 @@ fig.tight_layout()
 # %% [markdown]
 # Without caching, a conversation gets more expensive with every turn: the prompt
 # grows, so TTFT grows. With caching, the *computed* part of the prompt is flat —
-# always the 400 new tokens — and so is TTFT. This is the single most important
-# consequence of prefix caching: **the cost of a turn stops depending on how long
-# the conversation already is.**
+# always the 400 new tokens — and so is TTFT.
 #
 # (Turn 0 is the exception. Its prompt is new, so it is a full miss, and it is the
 # only turn whose TTFT the cache cannot improve.)
@@ -482,11 +428,9 @@ pd.DataFrame(layout).T.round(2)
 # %% [markdown]
 # With the preamble first, 90% of the prompt tokens are shared and the median TTFT
 # barely moves as the preamble grows from nothing to 2,048 tokens: one request pays
-# for the preamble and the other 59 read its KV cache. The users never interact and
-# the application does nothing special; two requests starting with the same tokens
-# is all it takes.
+# for the preamble and the other 59 read its KV cache.
 #
-# Move the identical text behind the user's question and the KV cache hit rate is exactly
+# If you move the identical text behind the user's question, the KV cache hit rate collapses to
 # zero. The first block already differs between users, so the chained hash gives
 # every later block a different name too, and a 2,048-token preamble now costs a
 # 17× higher median TTFT than the same preamble placed first.
@@ -516,10 +460,10 @@ pd.DataFrame(layout).T.round(2)
 # ## The cache is finite
 #
 # Cached blocks live in the same pool as the KV cache of the *running* requests.
-# When a replica needs a block and none is free, it evicts the least recently used
+# When a system needs a block and none is free, it evicts the least recently used
 # cached block — a prefix someone might have come back to.
 #
-# Our replica holds about 350,000 tokens of KV cache, far more than this small
+# Our TP-2 A100 GPU setup holds about 350,000 tokens of KV cache, far more than this small
 # workload needs, which is why nothing was evicted above. Real replicas are not so
 # comfortable: they run hundreds of concurrent requests with long contexts. We can
 # emulate that pressure by shrinking the pool with `kv_blocks` (the number of
@@ -564,46 +508,30 @@ fig.tight_layout()
 # the median TTFT is four times lower than the no-cache row — but the tail is close
 # to it.
 #
-# Two things about this experiment are worth separating from the result. We created
-# the memory pressure by shrinking the pool; a real replica gets it from serving
-# many long conversations at once. Different cause, same curve.
-#
-# And when the pool fills, our replica simply **drops** the least recently used
-# cached block, so a session that returns has to prefill its whole history again.
-# Many production systems do not drop it — they **spill it to CPU memory or SSD**
+# Again, unlike our simulator, which simply **drops** the least recently used
+# cached block, many production systems **spill it to CPU memory or SSD**
 # (vLLM's offloading, LMCache, Mooncake's cluster-wide pool) and fetch it back when
-# the session comes back. That turns the question into a comparison of two
-# latencies: recompute the prefix, or fetch it from somewhere slower. For long
-# prefixes the fetch wins easily — the 2.3 GB behind a 9,000-token prompt takes a
-# second or two to recompute and well under a tenth of a second to move over a fast
-# link — and for short ones it does not, which is why the decision is made per
-# request rather than once.
+# the session comes back. This field is still has a lot of interesting research questions.
 
 # %% [markdown]
 # ## The cache is per-replica
 #
-# Our replica keeps its cached blocks to itself. That is the assumption behind
-# every number in this section: if turn 2 of a conversation is handled by a
+# When each replica (e.g., a group of TP-2 GPU servers running inference) keeps its cached blocks to itself,
+# requests can benefit from prefix caching only if the replica they are allocated to holds the prefix blocks that they need.
+# If turn 2 of a conversation is handled by a
 # different replica than turn 1, the prefix is on the wrong GPU and the request is a
-# full miss. It is the simplest thing a cluster can do, it is what independent vLLM
-# or SGLang replicas behind an ordinary load balancer actually do, and it is what
-# the simulator models.
-#
-# Real clusters sit on a spectrum above that. NVIDIA's
-# [Dynamo](https://github.com/ai-dynamo/dynamo) keeps the caches per replica but
-# puts a **KV-aware router** in front of them, scoring each replica by how much of
+# full miss.
+# To make sure that requests are mostly routed to the replica that holds useful prefix blocks to them,
+# real cluster schedulers implement KV-aware schedulers. NVIDIA's
+# [Dynamo](https://github.com/ai-dynamo/dynamo) has a **KV-aware router**, scoring each replica by how much of
 # the incoming prompt it already holds and weighing that against how loaded it is;
 # the `dynamo_kv` policy below is modelled on exactly that scoring. Mooncake ([Qin
-# et al., FAST '25](https://arxiv.org/abs/2407.00079)) removes the assumption instead: because its KVCache pool spans
-# the cluster's CPU memory and SSDs, a prefix computed on one GPU can be **fetched**
-# by another rather than recomputed, and its scheduler decides per request whether
-# that transfer is worth it.
+# et al., FAST '25](https://arxiv.org/abs/2407.00079)) 
+# implements a similar KV-aware scheduling policy, but it can additionally fetch blocks from remote node
+# when doing so is worth it, having a larger decision space.
 #
-# So read the experiment below as the lower bound — what routing alone can do when
-# nothing is allowed to move. It is still the question most deployments face first,
-# because even a cluster that *can* move KV around would rather send the request to
-# where the KV already is than pay for the transfer.
-#
+# For our experiment below, let's simply assume that KV blocks cannot move around, and it will be a full miss if
+# requests are routed to a wrong replica.
 # Let's run the same conversations on a cluster of four replicas with different
 # routing policies: `round_robin` (ignore history, spread the load),
 # `sticky_lor` (pin each session, on its first request, to the least-loaded replica
