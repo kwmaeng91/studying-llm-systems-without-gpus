@@ -55,9 +55,9 @@
 # serving system on the CPU.
 #
 # The simulations in these lectures rely on
-# [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) ([Kim et al., IISWC 2026](https://arxiv.org/abs/2606.01725)),
+# [Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) ([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725)),
 # which extends Microsoft's [Vidur](https://github.com/microsoft/vidur) LLM inference simulator
-# ([Agrawal et al., MLSys 2024](https://arxiv.org/abs/2405.05465)). We use them as the simulation engine.
+# ([Agrawal et al., MLSys '24](https://arxiv.org/abs/2405.05465)). We use them as the simulation engine.
 # `llm_systems_wo_gpus` (imported as `lsg`) is an easy-to-use wrapper we built on
 # top of them just for these lectures: it installs the simulator, turns its hundreds
 # of command-line flags into a few Python arguments, and returns results as tables.

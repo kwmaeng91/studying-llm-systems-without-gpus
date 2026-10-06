@@ -49,6 +49,7 @@ GPU cluster takes seconds on a laptop CPU.
 ## How accurate is it?
 
 Its authors report < 9% error in request latency against real vLLM deployments
-across several models and GPUs (Agrawal et al., MLSys 2024), and validate the
-agentic extensions against real agent traces in the IISWC'26 paper. Treat the absolute numbers as good estimates, and the
+across several models and GPUs ([Agrawal et al., MLSys '24](https://arxiv.org/abs/2405.05465)), and validate
+the agentic extensions against real agent traces ([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725)).
+Treat the absolute numbers as good estimates, and the
 **trends** (which configuration is better, where the knee is) as the main lesson.

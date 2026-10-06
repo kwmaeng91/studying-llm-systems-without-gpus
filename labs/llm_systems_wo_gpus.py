@@ -402,7 +402,8 @@ def _merge_pd_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # The agent traces that ship with the simulator repo: real LLM requests recorded
-# while two agent systems solved GAIA tasks (Kim et al., IISWC 2026).
+# while two agent systems solved GAIA tasks (Kim et al., IISWC '26,
+# https://arxiv.org/abs/2606.01725).
 GAIA_SUBDIR = "GAIATrace"
 
 # Which model served a request, recognised from the first token ids of its prompt

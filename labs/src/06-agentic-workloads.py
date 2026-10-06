@@ -26,16 +26,18 @@
 # extreme form. And the thing a user waits for is the task, not the request: a p99
 # TTFT of 200 ms says little if the task takes six minutes.
 #
-# The lecture works from recorded traces rather than a synthetic workload. They
-# come from [GAIATrace](https://github.com/psu-paws/Vidur-Agent) ([Kim et al., IISWC
-# '26](https://arxiv.org/abs/2606.01725)), which recorded every LLM request two agent systems issued while solving
-# tasks from GAIA ([Mialon et al., ICLR '24](https://openreview.net/forum?id=fibxvahvs3)), a benchmark of questions that need
-# browsing, file handling and code to answer. The corpus covers
-# [OWL](https://github.com/camel-ai/owl) ([Hu et al., NeurIPS '25](https://arxiv.org/abs/2505.23885)), a multi-agent
-# system, and [MiroThinker](https://github.com/MiroMindAI/MiroThinker), a single agent with a summariser; we use OWL here. Each
-# request carries its prompt and output token ids, the turns it depended on, and a
-# separately measured tool latency. The traces ship with the simulator, so they are
-# already on your disk after `lsg.setup()`.
+# The lecture works from recorded traces rather than a synthetic workload. They come
+# from [GAIATrace](https://github.com/psu-paws/Vidur-Agent)
+# ([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725)), which recorded every
+# LLM request two agent systems issued while solving tasks from GAIA
+# ([Mialon et al., ICLR '24](https://openreview.net/forum?id=fibxvahvs3)), a
+# benchmark of questions that need browsing, file handling and code to answer. The
+# corpus covers [OWL](https://github.com/camel-ai/owl)
+# ([Hu et al., NeurIPS '25](https://arxiv.org/abs/2505.23885)), a multi-agent system,
+# and [MiroThinker](https://github.com/MiroMindAI/MiroThinker), a single agent with a
+# summariser; we use OWL here. Each request carries its prompt and output token ids,
+# the turns it depended on, and a separately measured tool latency. The traces ship
+# with the simulator, so they are already on your disk after `lsg.setup()`.
 #
 # :::{admonition} Learning goals
 # - Describe the structure of an agent session: turns, roles, dependencies,
@@ -305,8 +307,8 @@ print(f"ideal prefix-cache hit rate: {ideal_hit_rate(sessions):.1%}")
 # system prompt, and the twelve fan-out requests share only their instructions, not
 # the page chunk each one carries.
 #
-# That figure is in the range production systems report. Mooncake ([Qin et al., FAST
-# '25](https://arxiv.org/abs/2407.00079)) measures about 59% reusable prompt tokens on the tool- and agent-style
+# That figure is in the range production systems report. Mooncake
+# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)) measures about 59% reusable prompt tokens on the tool- and agent-style
 # traffic reaching the Kimi chatbot, against about 40% on ordinary conversation —
 # agentic traffic is the better case, because of those long repeated system prompts
 # and tool schemas. It is also an upper bound: it assumes a cache that never

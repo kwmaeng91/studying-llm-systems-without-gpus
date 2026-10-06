@@ -593,8 +593,8 @@ fig.tight_layout()
 # [Dynamo](https://github.com/ai-dynamo/dynamo) keeps the caches per replica but
 # puts a **KV-aware router** in front of them, scoring each replica by how much of
 # the incoming prompt it already holds and weighing that against how loaded it is;
-# the `dynamo_kv` policy below is modelled on exactly that scoring. Mooncake ([Qin
-# et al., FAST '25](https://arxiv.org/abs/2407.00079)) removes the assumption instead: because its KVCache pool spans
+# the `dynamo_kv` policy below is modelled on exactly that scoring. Mooncake
+# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)) removes the assumption instead: because its KVCache pool spans
 # the cluster's CPU memory and SSDs, a prefix computed on one GPU can be **fetched**
 # by another rather than recomputed, and its scheduler decides per request whether
 # that transfer is worth it.

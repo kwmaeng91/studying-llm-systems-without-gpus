@@ -20,8 +20,9 @@
 # This lecture explores a more radical idea: **never let the two phases share a
 # GPU at all.** Run prefills on one set of GPUs and decodes on another, and move
 # each request from the first to the second once its prompt has been processed.
-# This is **prefill–decode (PD) disaggregation**, proposed by DistServe ([Zhong et
-# al., OSDI '24](https://arxiv.org/abs/2401.09670)) and Splitwise ([Patel et al., ISCA '24](https://arxiv.org/abs/2311.18677)), and used in production
+# This is **prefill–decode (PD) disaggregation**, proposed by DistServe
+# ([Zhong et al., OSDI '24](https://arxiv.org/abs/2401.09670)) and Splitwise
+# ([Patel et al., ISCA '24](https://arxiv.org/abs/2311.18677)), and used in production
 # systems such as Mooncake ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)) and NVIDIA
 # [Dynamo](https://github.com/ai-dynamo/dynamo).
 #
