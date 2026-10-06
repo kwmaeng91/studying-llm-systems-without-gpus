@@ -30,9 +30,9 @@
 # ```text
 # request 1   [system prompt, ~1,000 tokens]
 #             [user: "How do I reverse a list in Python?"]
-# 
+#
 # response 1  [assistant: "Use list.reverse(), or ..."]
-# 
+#
 # request 2   [system prompt, ~1,000 tokens]            <- identical
 #             [user: "How do I reverse a list in Python?"]   <- identical
 #             [assistant: "Use list.reverse(), or ..."]      <- identical
@@ -55,16 +55,17 @@
 #
 # ### The same text also repeats across users
 #
-# Repetition is not confined to one conversation. *Every* request to an LLM-based application
-# is prepended with the system prompt, so the opening thousand tokens of every request 
-# are token-for-token identical, even though those users have
-# nothing to do with each other.
+# Repetition is not confined to one conversation. *Every* request an LLM-based
+# application makes is prefixed with the same system prompt, so the opening
+# thousand tokens of every request are token-for-token identical, even though the
+# users who sent them have nothing to do with each other.
 #
 # It helps to see what that text actually is. The excerpts below are decoded from
-# the recorded traces of [OWL](https://github.com/camel-ai/owl) (Hu et al., NeurIPS
-# '25), the open-source multi-agent system we take apart in lecture 6 — this is
-# verbatim what it sent to the model, elided where marked. Every request its
-# web-search worker makes opens with the following **system prompt**:
+# the recorded traces of [OWL](https://github.com/camel-ai/owl)
+# ([Hu et al., NeurIPS '25](https://arxiv.org/abs/2505.23885)), the open-source
+# multi-agent system we take apart in lecture 6. This is verbatim what it sent to
+# the model, elided where marked. Every request its web-search worker makes opens
+# with the following **system prompt**:
 #
 # ```text
 # You are a helpful assistant that can search the web, extract webpage content,
@@ -124,21 +125,22 @@
 # [...]
 # ```
 #
-# Whenever the AI agent needs to do a web-search, the query to the web-search agent is
-# prepended with about 1,500 tokens (shown above) before the actual task is even mentioned. 
-# 
-# Common prefixes can also appear when there is a document that many people ask
-# about — the same manual, contract or repository file pasted above a different
-# question each time. vLLM's documentation gives exactly that as the canonical case
-# for turning prefix caching on.
+# Whenever the agent needs a web search, the request it sends to the web-search
+# worker opens with about 1,500 tokens of the text shown above, before the actual
+# task is even mentioned.
 #
-# Mooncake (Qin et al., FAST '25), the serving system behind the Kimi chatbot, reports from its production
-# traces that roughly half of all prompt tokens are reusable when the cache has room
-# — about 40% on conversational traffic, where most of the reuse is a user's own
-# history, and about 59% on tool- and agent-style traffic, where those long,
-# repetitive system prompts are reused across users. The same deployment's hit rate falls below 20%
-# at peak hours, when the cache does not have room; we will reproduce that effect
-# later in the lecture.
+# Common prefixes also appear when many people ask about the same document — the
+# same manual, contract or repository file pasted above a different question each
+# time. [vLLM's documentation](https://docs.vllm.ai/en/latest/features/automatic_prefix_caching/)
+# gives exactly that as the canonical case for turning prefix caching on.
+#
+# Mooncake ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)), the serving system behind the Kimi
+# chatbot, reports from its production traces that roughly half of all prompt tokens
+# are reusable when the cache has room — about 40% on conversational traffic, where
+# most of the reuse is a user's own history, and about 59% on tool- and agent-style
+# traffic, where those long, repetitive system prompts are reused across users. The
+# same deployment's hit rate falls below 20% at peak hours, when the cache does not
+# have room; we will reproduce that effect later in the lecture.
 #
 # ## The idea
 #
@@ -192,10 +194,12 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 #
 # ### Step 1: the KV cache is already paged
 #
-# We did not explain how KV cache works in this lecture series, but KV are stored in a granularity of **blocks** (also called pages).
-# The idea of strong KV in blocks were first introduced in the **PagedAttention** (Kwon et al., SOSP '23) paper, which was the paper vLLM was built around.
-# You can think of blocks as pages in virtual memory.
-# 
+# We have not yet looked at how the KV cache is laid out in memory. It is not one
+# contiguous array per request: it is stored at the granularity of **blocks** (also
+# called pages), which you can think of as pages in virtual memory. The idea of
+# storing the KV cache in blocks was introduced by **PagedAttention**
+# ([Kwon et al., SOSP '23](https://arxiv.org/abs/2309.06180)), the paper vLLM was built around.
+#
 # Block sizes can be configured: vLLM defaults to 16 tokens (`--block-size`),
 # TensorRT-LLM to 32, and SGLang to 1 (`--page-size`). Larger blocks mean less
 # bookkeeping per token and more efficient transfers when blocks move between
@@ -235,19 +239,24 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 #
 # 1. **Matching is on a prefix, not on a substring.** The chained hash means one
 #    different token early in the prompt gives every later block a different name,
-#    even if the rest of the text is identical. Only the stream of tokens that are bit-by-bit identical from the beginning is a hit.
+#    even if the rest of the text is identical. Only the run of tokens that is
+#    identical from the very first one counts as a hit.
 # 2. **The last, partial block is not named.** Only full blocks are hashed, so
-#    hits are rounded down to a multiple of the block size. This is a small artifact that we will not care too much, unless the block size is huge (which is usually not).
-# 3. **Cached blocks compete for memory with running requests.** Cached prefixes and KV cache for running requests sit in the
-#    same pool, so when a request needs more space for its KV cache, the server has to
-#    evict existing blocks — and the natural candidate is a block no running request is using,
-#    which is exactly what a cached prefix is. Thus, prefixes can be evicted, in which case it cannot be reused even when a request with the matching prefix arrives in the future.
+#    hits are rounded down to a multiple of the block size. This is a small artefact
+#    that we will mostly ignore; it only matters when the block size is large, which
+#    it usually is not.
+# 3. **Cached blocks compete for memory with running requests.** Cached prefixes and
+#    the KV cache of running requests sit in the same pool, so when a request needs
+#    more space, the server has to evict something — and the natural candidate is a
+#    block no running request is using, which is exactly what a cached prefix is. An
+#    evicted prefix cannot be reused, even when a request that matches it arrives
+#    later.
 #
 # ### The same idea, a different data structure
 #
 # A flat hash table is not the only way to answer "which prefixes do I already
 # have". SGLang keeps them in a **radix tree** over token ids — *RadixAttention*
-# (Zheng et al., NeurIPS '24). Each edge carries a run of tokens and the KV behind
+# ([Zheng et al., NeurIPS '24](https://arxiv.org/abs/2312.07104)). Each edge carries a run of tokens and the KV behind
 # it, a lookup is a longest-prefix walk from the root, and eviction is LRU on the
 # leaves. Because the tree matches token by token rather than block by block, it
 # does not round a hit down to a block boundary, and it makes the sharing structure
@@ -266,10 +275,10 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # every user share a great deal of text and almost no prefixes. Two lines of work
 # relax the restriction:
 #
-# - **Prompt Cache** (Gim et al., MLSys '24) has the application declare reusable
+# - **Prompt Cache** ([Gim et al., MLSys '24](https://proceedings.mlsys.org/paper_files/paper/2024/hash/a66caa1703fe34705a4368c3014c1966-Abstract-Conference.html)) has the application declare reusable
 #   *segments* in a schema, precomputes each segment's attention state once, and
 #   re-encodes positions when a segment lands at a new offset.
-# - **CacheBlend** (Yao et al., EuroSys '25) concatenates the cached KV of several
+# - **CacheBlend** ([Yao et al., EuroSys '25](https://arxiv.org/abs/2405.16444)) concatenates the cached KV of several
 #   chunks and then selectively recomputes a small fraction of the tokens, to repair
 #   the attention those chunks never paid to each other. It reports 2–3× lower TTFT
 #   at what it measures as a negligible quality drop.
@@ -286,8 +295,8 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # literally true: one pool of blocks per replica, in HBM, and an evicted block is
 # gone. Production systems treat HBM as only the fastest tier of a hierarchy. vLLM
 # can offload blocks to CPU memory; [LMCache](https://github.com/LMCache/LMCache)
-# adds a reusable KV store with local and remote backends; and Mooncake (Qin et al.,
-# FAST '25), which serves the Kimi chatbot, goes furthest — it pools the CPU DRAM,
+# adds a reusable KV store with local and remote backends; and Mooncake
+# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)), which serves the Kimi chatbot, goes furthest — it pools the CPU DRAM,
 # SSDs and RDMA NICs of an entire GPU cluster into one disaggregated KVCache, holds
 # paged blocks there under LRU or LFU, and has its global scheduler send each
 # request to where its prefix already lives.
@@ -491,8 +500,9 @@ pd.DataFrame(layout).T.round(2)
 # :::
 #
 # Hosted APIs make the same rule explicit, and their details are worth knowing
-# because that is the deployment most readers meet first. Anthropic's prompt
-# caching, for instance, is opt-in and manual: you place up to four `cache_control`
+# because that is the deployment most readers meet first.
+# [Anthropic's prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching),
+# for instance, is opt-in and manual: you place up to four `cache_control`
 # breakpoints, everything before a breakpoint is cached for 5 minutes by default
 # (1 hour as an option), a cache *write* costs more than an ordinary input token
 # while a *read* costs far less, and a prefix shorter than a model-dependent minimum
@@ -583,8 +593,8 @@ fig.tight_layout()
 # [Dynamo](https://github.com/ai-dynamo/dynamo) keeps the caches per replica but
 # puts a **KV-aware router** in front of them, scoring each replica by how much of
 # the incoming prompt it already holds and weighing that against how loaded it is;
-# the `dynamo_kv` policy below is modelled on exactly that scoring. Mooncake (Qin
-# et al., FAST '25) removes the assumption instead: because its KVCache pool spans
+# the `dynamo_kv` policy below is modelled on exactly that scoring. Mooncake ([Qin
+# et al., FAST '25](https://arxiv.org/abs/2407.00079)) removes the assumption instead: because its KVCache pool spans
 # the cluster's CPU memory and SSDs, a prefix computed on one GPU can be **fetched**
 # by another rather than recomputed, and its scheduler decides per request whether
 # that transfer is worth it.
@@ -722,7 +732,7 @@ lsg.quiz([
                  "Because a request's length is not known in advance, so a contiguous reservation has to be sized for the worst case and most of it is then wasted",
                  "Because a GPU cannot address more than 16 tokens at a time"],
      "answer": 1,
-     "explain": "This is PagedAttention (Kwon et al., SOSP '23): blocks need not be adjacent, so a request over-allocates by at most one block. Giving those blocks names is what makes prefix reuse possible on top of it."},
+     "explain": "This is PagedAttention (<a href=\"https://arxiv.org/abs/2309.06180\">Kwon et al., SOSP '23</a>): blocks need not be adjacent, so a request over-allocates by at most one block. Giving those blocks names is what makes prefix reuse possible on top of it."},
     {"q": "Why does reusing a cached KV block not change the model's output?",
      "options": ["The error is small enough to ignore",
                  "A token's keys and values depend only on the tokens before it, so the cached values are exactly what a fresh prefill would compute",

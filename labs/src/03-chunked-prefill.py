@@ -23,8 +23,8 @@
 # waits seconds for their first token, or the existing users see their text
 # **stall** mid-sentence. In this lecture we try the obvious answers first, see why
 # each of them fails, and then build up to **chunked prefill**, the technique used
-# by modern serving systems such as vLLM (Kwon et al., SOSP '23) and SGLang
-# (Zheng et al., NeurIPS '24).
+# by modern serving systems such as vLLM ([Kwon et al., SOSP '23](https://arxiv.org/abs/2309.06180)) and SGLang
+# ([Zheng et al., NeurIPS '24](https://arxiv.org/abs/2312.07104)).
 #
 # :::{admonition} Learning goals
 # - Explain why the three "obvious" ways to schedule a new prefill (make it wait,
@@ -226,7 +226,7 @@ print(f"document TTFT if it waits: {ttft_wait:.1f} s")
 #
 # The opposite policy: as soon as a new request arrives, pause everyone who is
 # decoding, run the new request's prefill on its own, then resume the decodes. This
-# *prefill-first* policy was the default in vLLM (Kwon et al., SOSP '23) before
+# *prefill-first* policy was the default in vLLM ([Kwon et al., SOSP '23](https://arxiv.org/abs/2309.06180)) before
 # its V1 engine.
 
 # %% cellView="form" tags=["remove-input"]
@@ -257,7 +257,7 @@ print(f"longest gap between two tokens for a chat user: {1e3 * stall_pause:.0f} 
 #
 # Lecture 2 showed that batching is the key to efficiency. So why not put the new
 # prefill and the 16 decodes into the *same* step? The decodes then make progress
-# during the prefill instead of being paused. Orca (Yu et al., OSDI '22), which introduced
+# during the prefill instead of being paused. Orca ([Yu et al., OSDI '22](https://www.usenix.org/conference/osdi22/presentation/yu)), which introduced
 # scheduling at the granularity of a single step (*iteration-level scheduling*),
 # could form such mixed batches.
 
@@ -329,7 +329,7 @@ print(f"longest gap between two tokens for a chat user: {1e3 * gap_mixed:.0f} ms
 # its own, and so on. The result is exactly the same as prefilling the whole prompt
 # at once (this is the same mechanism decode uses to attend to earlier tokens).
 #
-# **Chunked prefill**, introduced by Sarathi-Serve (Agrawal et al., OSDI '24) and
+# **Chunked prefill**, introduced by Sarathi-Serve ([Agrawal et al., OSDI '24](https://www.usenix.org/conference/osdi24/presentation/agrawal)) and
 # now used by default in vLLM and SGLang, builds every step under a fixed **token budget**
 # (`chunk_size` in our simulator):
 #
