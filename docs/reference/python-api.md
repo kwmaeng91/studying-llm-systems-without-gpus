@@ -30,6 +30,8 @@ Downloads the simulator into `$LSG_BACKEND_DIR` (default
 | `chunk_size` | `512` | token budget per step (chunked prefill) |
 | `global_scheduler` | `"round_robin"` | router policy across replicas |
 | `prefix_caching` | `False` | enable automatic prefix (KV) caching |
+| `kv_blocks` | auto | override the replica's KV-cache capacity, in 16-token blocks |
+| `max_tokens` | `16384` | longest request (and largest batched context) the runtime predictor is fitted for; raising it costs fitting time and memory |
 | `replica_groups` | `None` | dict or JSON path for heterogeneous / PD-disaggregated clusters |
 | `seed` | `42` | random seed for arrivals |
 | `keep_steps` | `False` | record every forward pass, readable as `Result.steps` |
@@ -44,6 +46,8 @@ Downloads the simulator into `$LSG_BACKEND_DIR` (default
 | `summary()` | Series | TTFT/TPOT p50/p99, E2E p50, queueing p50, throughput, makespan |
 | `ttft`, `tpot`, `e2e` | Series | per-request latencies in seconds |
 | `kv_cache_tokens` | int | KV-cache capacity of one replica, in tokens |
+| `cache` | DataFrame | per replica: prompt tokens asked for, tokens served from the prefix cache, hit rate, blocks evicted |
+| `cache_hit_rate` | float | fraction of all prompt tokens served from the prefix cache |
 | `steps` | DataFrame | one row per forward pass, in order within each `replica`: prefill/decode tokens, batch size, `batch_execution_time` (needs `keep_steps=True`) |
 | `cdf(metric)` | DataFrame | CDF of a batch-level metric such as `batch_size` or `batch_num_tokens` |
 | `out_dir` | Path | raw simulator output directory |
@@ -68,9 +72,34 @@ Key columns of `requests`:
 Calls `simulate(**{param: v}, **kwargs)` for each value and stacks the summaries,
 indexed by `param`.
 
-## `make_trace(prefill_tokens, decode_tokens, n, name=None) → Path`
+## `make_trace(prefill_tokens, decode_tokens, n, name=None, **columns) → Path`
 
-Writes a two-column trace CSV that `simulate(trace=...)` can replay.
+Writes a trace CSV that `simulate(trace=...)` can replay. `prefill_tokens` and
+`decode_tokens` are ints or sequences of length `n`. The keyword arguments, each a
+sequence of length `n`, describe multi-turn sessions:
+
+| Argument | Meaning |
+|---|---|
+| `token_ids` | the request's prompt **and** output token ids (`len == prefill + decode`); required for prefix-cache matching |
+| `session_id`, `turn_id` | which conversation a request belongs to, and its position in it |
+| `dep` | turn ids that must all finish before this request is released |
+| `think_time` | seconds between that release and the arrival (a tool call, or a user reading) |
+| `request_id` | the id the request keeps in `Result.requests` |
+| `block_size` | KV block size used for hashing (default 16) |
+
+## Recorded agent traces
+
+`gaia_sessions(num_sessions=20, max_tokens=None, seed=0) → DataFrame` loads real
+multi-turn agent sessions recorded with
+[GAIATrace](https://github.com/psu-paws/Vidur-Agent) (downloaded with the
+simulator), one row per LLM request: `session`, `turn`, `role`, `dep`,
+`num_prefill_tokens`, `num_decode_tokens`, `tool_time`, `token_ids`. Sessions
+containing a request longer than `max_tokens` are skipped.
+
+`gaia_trace(sessions) → Path` writes those rows as a trace CSV for `simulate`.
+
+`decode(token_ids) → str` turns recorded token ids back into text (installs
+`tiktoken` on first use).
 
 ## `quiz(questions) → HTML`
 

@@ -14,11 +14,13 @@ it does not expose can still be passed through ``extra={"--flag": value}``.
 
 from __future__ import annotations
 
+import csv
 import glob
 import hashlib
 import importlib.util
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -104,15 +106,47 @@ def setup() -> Path:
     return _backend_dir()
 
 
-def make_trace(prefill_tokens, decode_tokens, n: int, name: str | None = None) -> Path:
+def make_trace(prefill_tokens, decode_tokens, n: int, name: str | None = None, *,
+               token_ids=None, session_id=None, turn_id=None, dep=None,
+               think_time=None, request_id=None, block_size: int = 16) -> Path:
     """Write a request-length trace CSV.
 
     ``prefill_tokens`` / ``decode_tokens`` may be ints (every request identical) or
     sequences of length ``n``.
+
+    The keyword arguments describe multi-turn sessions, and each is a sequence of
+    length ``n``:
+
+    * ``token_ids``: the request's prompt **and** output token ids
+      (``len == prefill + decode``). Needed for token-exact prefix-cache matching:
+      without it, requests never share a prefix.
+    * ``session_id`` / ``turn_id``: which conversation a request belongs to and its
+      position in it. Turn *k+1* is released when turn *k* completes.
+    * ``dep``: turn ids within the session that must *all* finish before this
+      request is released (defaults to the previous turn).
+    * ``think_time``: seconds between the release condition and the arrival, e.g.
+      how long a tool call took (written as ``inter_request_latency``).
+    * ``request_id``: the id each request keeps in ``Result.requests``, so that rows
+      can be joined back to the trace.
     """
-    p = prefill_tokens if hasattr(prefill_tokens, "__len__") else [prefill_tokens] * n
-    d = decode_tokens if hasattr(decode_tokens, "__len__") else [decode_tokens] * n
-    df = pd.DataFrame({"num_prefill_tokens": list(p), "num_decode_tokens": list(d)})
+    def col(v):
+        return list(v) if hasattr(v, "__len__") and not isinstance(v, str) else [v] * n
+
+    df = pd.DataFrame({"num_prefill_tokens": col(prefill_tokens),
+                       "num_decode_tokens": col(decode_tokens)})
+    if token_ids is not None:
+        df["token_ids"] = [json.dumps(list(t)) for t in token_ids]
+        df["block_size"] = block_size
+    if session_id is not None:
+        df["session_id"] = col(session_id)
+    if turn_id is not None:
+        df["turn_id"] = col(turn_id)
+    if dep is not None:
+        df["dep"] = [json.dumps(list(x)) for x in dep]
+    if think_time is not None:
+        df["inter_request_latency"] = col(think_time)
+    if request_id is not None:
+        df["request_id"] = col(request_id)
     if name is None:
         name = hashlib.md5(df.to_csv(index=False).encode()).hexdigest()[:12]
     path = WORK_DIR / "traces" / f"{name}.csv"
@@ -133,6 +167,31 @@ class Result:
         """Tokens of KV cache that fit on one replica after the weights are loaded."""
         m = re.search(r"GPU blocks=(\d+), block_size=(\d+)", self.log)
         return int(m.group(1)) * int(m.group(2)) if m else -1
+
+    @property
+    def cache(self) -> pd.DataFrame:
+        """Per-replica prefix-cache statistics.
+
+        ``prefill tokens`` counts every prompt token the replica was asked for,
+        ``cached tokens`` the ones it found already in the KV cache, and
+        ``evictions`` how many cached blocks it had to throw away to make room.
+        """
+        rows = {}
+        for f in sorted(self.out_dir.rglob("eviction_metrics_replica_*.json")):
+            d = json.loads(f.read_text())
+            rows[int(f.stem.rsplit("_", 1)[-1])] = {
+                "prefill tokens": d["sum_prefill_tokens"],
+                "cached tokens": d["sum_kvhit_tokens"],
+                "hit rate": d["token_cache_hit_rate"],
+                "evictions": d["num_evictions"],
+            }
+        return pd.DataFrame(rows).T.rename_axis("replica")
+
+    @property
+    def cache_hit_rate(self) -> float:
+        """Fraction of all prompt tokens that were served from the prefix cache."""
+        c = self.cache
+        return float(c["cached tokens"].sum() / max(c["prefill tokens"].sum(), 1))
 
     @property
     def ttft(self) -> pd.Series:
@@ -203,6 +262,8 @@ def simulate(
     chunk_size: int = 512,
     global_scheduler: str = "round_robin",
     prefix_caching: bool = False,
+    kv_blocks: int | None = None,
+    max_tokens: int | None = None,
     replica_groups: dict | str | Path | None = None,
     seed: int = 42,
     store_plots: bool = False,
@@ -223,13 +284,16 @@ def simulate(
     backend = setup() if not (_backend_dir() / BACKEND_MODULE).exists() else _backend_dir()
     if trace is None:
         trace = make_trace(prefill_tokens, decode_tokens, num_requests)
-    lengths = pd.read_csv(trace)
+    grid = dict(LITE_GRID)
+    if max_tokens is not None:
+        grid["prediction_max_tokens_per_request"] = max_tokens
+    lengths = pd.read_csv(trace, usecols=["num_prefill_tokens", "num_decode_tokens"])
     longest = int((lengths["num_prefill_tokens"] + lengths["num_decode_tokens"]).max())
-    if longest > LITE_GRID["prediction_max_tokens_per_request"]:
+    if longest > grid["prediction_max_tokens_per_request"]:
         raise ValueError(
-            f"A request has {longest:,} prompt+output tokens; the course setup supports at "
-            f"most {LITE_GRID['prediction_max_tokens_per_request']:,} per request "
-            "(LITE_GRID['prediction_max_tokens_per_request'], kept small to save memory).")
+            f"A request has {longest:,} prompt+output tokens; this run's runtime predictor "
+            f"covers at most {grid['prediction_max_tokens_per_request']:,} tokens. Raise "
+            "simulate(max_tokens=...) (slower to fit, more memory) or use a shorter trace.")
 
     args: dict = {
         "--seed": seed,
@@ -242,10 +306,12 @@ def simulate(
         "--synthetic_request_generator_config_num_requests": num_requests,
         "--length_generator_config_type": "trace",
         "--trace_request_length_generator_config_trace_file": Path(trace).resolve(),
-        "--trace_request_length_generator_config_max_tokens": LITE_GRID["prediction_max_tokens_per_request"],
+        "--trace_request_length_generator_config_max_tokens": grid["prediction_max_tokens_per_request"],
         "--replica_scheduler_config_type": scheduler,
         "--cache_config_enable_prefix_caching": prefix_caching,
     }
+    if kv_blocks is not None:
+        args["--cache_config_num_blocks"] = kv_blocks
     if arrival_times is not None:
         # The interval generator replays the gaps between consecutive rows and
         # skips the first one, so a leading 0 makes request i arrive at arrival_times[i].
@@ -266,7 +332,7 @@ def simulate(
         args[f"--{scheduler}_scheduler_config_batch_size_cap"] = batch_size_cap
 
     p = "--random_forest_execution_time_predictor_config_"
-    for k, v in LITE_GRID.items():
+    for k, v in grid.items():
         args[p + k] = v
     args[p + "num_training_job_threads"] = 2
     args[p + "cache_dir"] = WORK_DIR / "predictor_cache"
@@ -331,6 +397,133 @@ def _merge_pd_rows(df: pd.DataFrame) -> pd.DataFrame:
     merged["prefill_replica"] = pre["replica"]
     merged["decode_replica"] = dec["replica"]
     return merged.reset_index()[list(df.columns) + ["prefill_replica", "decode_replica"]]
+
+
+# The agent traces that ship with the simulator repo: real LLM requests recorded
+# while two agent systems solved GAIA tasks (Kim et al., IISWC 2026).
+GAIA_SUBDIR = "GAIATrace"
+
+# Which agent inside the system issued a request (OWL's roles).
+GAIA_ROLES = {0: "plan", 1: "coordinate", 2: "web search", 3: "code", 4: "web summarize",
+              5: "web plan", 6: "web action", 7: "answer", 8: "document", 9: "other"}
+
+
+def gaia_dir() -> Path:
+    """Directory of the recorded agent traces, downloaded alongside the simulator."""
+    d = BACKEND_DIR / GAIA_SUBDIR
+    if not d.exists():
+        raise FileNotFoundError(f"{d} not found; run lsg.setup() first")
+    return d
+
+
+def _gaia_tool_latency(root: Path) -> dict:
+    """{(session file stem, turn id): seconds} from the measured tool benchmark.
+
+    Each tool was re-run several times outside the agent; a turn's latency is the
+    mean per tool call, summed over the calls that turn made (the agent awaits
+    them one after another).
+    """
+    per_call: dict = {}
+    for f in sorted((root / "raw" / "tool").glob("*.csv")):
+        with open(f, encoding="utf-8", newline="") as fh:
+            for row in csv.DictReader(fh):
+                try:
+                    seconds = float(row["effective_elapsed"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if seconds > 0:
+                    per_call.setdefault(
+                        (row["source_file"], int(row["request_idx"]), row.get("args_json", "")),
+                        []).append(seconds)
+    out: dict = {}
+    for (stem, turn, _args), values in per_call.items():
+        out[(stem, turn)] = out.get((stem, turn), 0.0) + sum(values) / len(values)
+    return out
+
+
+def gaia_sessions(num_sessions: int = 20, max_tokens: int | None = None, seed: int = 0,
+                  agent: str = "owl") -> pd.DataFrame:
+    """Load recorded agent sessions as one DataFrame, one row per LLM request.
+
+    Columns: ``session``, ``turn``, ``role`` (which agent in the system issued it),
+    ``dep`` (turns it waited for), ``num_prefill_tokens``, ``num_decode_tokens``,
+    ``tool_time`` (s), and ``token_ids`` (prompt + output, decodable with
+    :func:`decode`).
+
+    Sessions whose longest request exceeds ``max_tokens`` are skipped, because the
+    course's prediction grid only covers requests up to
+    ``LITE_GRID["prediction_max_tokens_per_request"]`` tokens (the default here).
+    """
+    if agent != "owl":
+        raise ValueError("only the OWL traces are packaged for the course (agent='owl')")
+    if max_tokens is None:
+        max_tokens = LITE_GRID["prediction_max_tokens_per_request"]
+    root = gaia_dir() / agent
+    files = [f for f in sorted((root / "traces" / "session_traces").glob("*.csv"))
+             if not f.stem.endswith("_tools")]
+    random.Random(seed).shuffle(files)
+    tool_latency = _gaia_tool_latency(root)
+
+    frames = []
+    for f in files:
+        if len(frames) >= num_sessions:
+            break
+        d = pd.read_csv(f).dropna(subset=["num_prefill_tokens", "num_decode_tokens"])
+        if len(d) == 0 or (d["num_prefill_tokens"] + d["num_decode_tokens"]).max() > max_tokens:
+            continue
+        d = d.reset_index(drop=True)
+        deps = [json.loads(x) if isinstance(x, str) else [] for x in d.get("dep", "[]")]
+        frames.append(pd.DataFrame({
+            "session": len(frames),
+            "turn": range(len(d)),
+            "role": [GAIA_ROLES.get(int(a), "other") for a in d["agent"]]
+                    if "agent" in d else "other",
+            "dep": deps,
+            "num_prefill_tokens": d["num_prefill_tokens"].astype(int),
+            "num_decode_tokens": d["num_decode_tokens"].astype(int),
+            "tool_time": [max([tool_latency.get((f.stem, int(i)), 0.0) for i in dep] or [0.0])
+                          for dep in deps],
+            "token_ids": d["tokens"],
+        }))
+    if len(frames) < num_sessions:
+        raise ValueError(f"only {len(frames)} sessions fit in {max_tokens:,} tokens per request")
+    return pd.concat(frames, ignore_index=True)
+
+
+def gaia_trace(sessions: pd.DataFrame, name: str | None = None) -> Path:
+    """Write the sessions from :func:`gaia_sessions` as a trace CSV for ``simulate``."""
+    df = pd.DataFrame({
+        "num_prefill_tokens": sessions["num_prefill_tokens"],
+        "num_decode_tokens": sessions["num_decode_tokens"],
+        "token_ids": sessions["token_ids"],
+        "block_size": 16,
+        "session_id": sessions["session"],
+        "turn_id": sessions["turn"],
+        "dep": [json.dumps(list(d)) for d in sessions["dep"]],
+        "inter_request_latency": sessions["tool_time"],
+        "request_id": 1000 * sessions["session"] + sessions["turn"],
+    })
+    if name is None:
+        name = "gaia_" + hashlib.md5(
+            df.drop(columns=["token_ids"]).to_csv(index=False).encode()).hexdigest()[:12]
+    path = WORK_DIR / "traces" / f"{name}.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False)
+    return path
+
+
+def decode(token_ids) -> str:
+    """Decode recorded token ids back to text (``o200k_harmony``, as the traces were made)."""
+    try:
+        import tiktoken
+    except ImportError:
+        print("Installing tiktoken ...", flush=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--progress-bar", "off",
+                        "tiktoken"], check=True)
+        import tiktoken
+    if isinstance(token_ids, str):
+        token_ids = json.loads(token_ids)
+    return tiktoken.get_encoding("o200k_harmony").decode(list(token_ids))
 
 
 def sweep(param: str, values, **kwargs) -> pd.DataFrame:

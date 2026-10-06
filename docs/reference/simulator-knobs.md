@@ -23,7 +23,7 @@ they set. The tables below list the ones the course uses, with their defaults.
 |---|---|---|
 | `--synthetic_request_generator_config_num_requests` | `128` | number of requests |
 | `--length_generator_config_type` | `fixed` | `trace` replays a CSV of lengths (use this; `fixed` is broken) |
-| `--trace_request_length_generator_config_trace_file` | — | CSV with `num_prefill_tokens,num_decode_tokens[,session_id,turn_id,...]` |
+| `--trace_request_length_generator_config_trace_file` | — | CSV with `num_prefill_tokens,num_decode_tokens[,session_id,turn_id,dep,inter_request_latency,token_ids,...]` |
 | `--interval_generator_config_type` | `poisson` | arrival process: `poisson`, `gamma`, `static`, `uniform`, `trace` |
 | `--poisson_request_interval_generator_config_qps` | `0.5` | arrival rate |
 
@@ -35,14 +35,17 @@ they set. The tables below list the ones the course uses, with their defaults.
 | `--vllm_v1_scheduler_config_chunk_size` | `4096` | token budget per iteration (chunked prefill); `llm_systems_wo_gpus` uses 512 |
 | `--vllm_v1_scheduler_config_batch_size_cap` | `128` | max requests per iteration |
 | `--vllm_v1_scheduler_config_session_priority` | off | prioritize earlier sessions (agentic workloads) |
-| `--vllm_v1_scheduler_config_sjf_priority` | off | shortest-job-first ordering |
+| `--vllm_v1_scheduler_config_sjf_priority` | off | shortest-job-first ordering, by prompt tokens left after the cache hit |
+| `--vllm_v1_scheduler_config_sjf_active_priority` | off | re-sort the waiting queue every round, not only on arrival |
+| `--vllm_v1_scheduler_config_sjf_starvation_timeout` | `0` | promote a request that has waited this many seconds (0 = never) |
 
 ## KV cache
 
 | Flag | Default | Description |
 |---|---|---|
 | `--cache_config_block_size` | `16` | tokens per KV block |
-| `--cache_config_enable_prefix_caching` | off | reuse KV of identical prefixes (hash of block contents) |
+| `--cache_config_enable_prefix_caching` | off | reuse KV of identical prefixes (chained hash of block contents); needs `token_ids` or `block_hash_ids` in the trace |
+| `--cache_config_num_blocks` | auto | override the KV-cache capacity instead of deriving it from GPU memory |
 | `--cache_config_memory_margin_fraction` | `0.1` | fraction of GPU memory reserved for activations |
 
 ## Global scheduler (router)

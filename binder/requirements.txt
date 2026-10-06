@@ -13,3 +13,4 @@ fasteners
 randomname
 wandb
 ipykernel
+tiktoken

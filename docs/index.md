@@ -39,14 +39,17 @@ The website and lecture materials were built with the help of Claude Code. I’v
   - {doc}`lectures/04-pd-disaggregation`
   - prefill–decode disaggregation vs. chunked prefill
 * - 5
-  - {doc}`lectures/05-hardware-and-parallelism`
-  - GPU type, tensor parallelism
+  - {doc}`lectures/05-prefix-caching`
+  - KV reuse across requests, prompt layout, eviction
 * - 6
-  - {doc}`lectures/06-cluster-routing`
-  - replicas and routing (outline)
+  - {doc}`lectures/06-agentic-workloads`
+  - real agent traces: sessions, tool calls, task-level latency
 * - 7
-  - {doc}`lectures/07-agentic-workloads`
-  - agentic workloads (outline)
+  - {doc}`lectures/07-hardware-and-parallelism`
+  - GPU type, tensor parallelism (outline)
+* - 8
+  - {doc}`lectures/08-cluster-routing`
+  - replicas and routing (outline)
 ```
 
 :::{warning}

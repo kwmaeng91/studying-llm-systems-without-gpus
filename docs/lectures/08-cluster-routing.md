@@ -1,4 +1,4 @@
-# [TEMP] 6. Scaling Out: Replicas and Request Routing
+# [TEMP] 8. Scaling Out: Replicas and Request Routing
 
 By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
 
@@ -40,3 +40,11 @@ for policy in ["round_robin", "lor", "lop"]:
     print(policy, lsg.simulate(num_replicas=4, qps=40, global_scheduler=policy,
                               trace=mixed_trace).summary()["TTFT p99 (ms)"])
 ```
+
+:::{note}
+Lectures {doc}`05-prefix-caching` and {doc}`06-agentic-workloads` already measured
+one consequence of routing — a request only hits the prefix cache on the replica
+that holds its prefix, so `sticky_lor` and `dynamo_kv` beat `round_robin` on hit
+rate while doing worse at the tail. This lecture takes the policies on their own
+terms.
+:::
