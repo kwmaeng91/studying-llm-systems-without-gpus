@@ -14,15 +14,15 @@
 # The last three lectures treated prefill as work that has to be done: it is
 # compute-bound (lecture 1), it interferes with decoding (lecture 3), and we can
 # either chunk it or move it to its own GPUs (lecture 4). This lecture is about
-# the work we can avoid doing at all.
+# how we can avoid some prefill.
 #
 # ## Why the same tokens arrive over and over
 #
-# A language model is a pure function of the tokens you hand it. The server keeps
-# nothing between requests: once your answer has finished streaming, the request's
-# KV cache is freed and, as far as the GPU is concerned, the conversation never
-# happened. Continuity is an illusion maintained by the *client*, which re-sends
-# the entire history every time you press enter.
+# An LLM is a pure function of the tokens you hand it. The server keeps
+# nothing between requests (at least in its simplest form). 
+# In a chatbot, where the LLM must be aware of the past conversation history, 
+# the past conversation is simply prepended to the query, so that the LLM can read
+# all the previous conversation, as well as your new question.
 #
 # So a two-message chat is not two small requests. It is one small request and one
 # large one, and what actually goes over the wire looks like this:
@@ -30,7 +30,9 @@
 # ```text
 # request 1   [system prompt, ~1,000 tokens]
 #             [user: "How do I reverse a list in Python?"]
-#
+# 
+# response 1  [assistant: "Use list.reverse(), or ..."]
+# 
 # request 2   [system prompt, ~1,000 tokens]            <- identical
 #             [user: "How do I reverse a list in Python?"]   <- identical
 #             [assistant: "Use list.reverse(), or ..."]      <- identical
@@ -44,35 +46,25 @@
 # short — several hundred to a few thousand tokens, and for an agent carrying a
 # dozen tool definitions, much more (lecture 6).
 #
+# The first request's prefill token is the system prompt plus the user's question.
+# The second request's prefill token is the system prompt, the first question and response, and the second question.
 # The second request has to carry the first exchange because the model cannot see
 # it otherwise: "What about a tuple?" is meaningless without the question and the
-# answer above it. By the fifth turn, the request opens with four turns of history,
-# and every one of those tokens was computed on this very GPU a minute ago and then
-# thrown away.
+# answer above it. With longer conversation, this keeps growing, but note that many of the tokens are identical from what the LLM processed before and is not new.
 #
 # ### The same text also repeats across users
 #
 # Repetition is not confined to one conversation. *Every* user of an application
 # sends that same system prompt, so the opening thousand tokens of every request
-# the deployment receives are token-for-token identical. A support assistant pastes
-# the same product manual into the prompt for everyone who asks about it; a coding
-# assistant sends the same repository files; a classifier sends the same twenty
-# few-shot examples in front of each new input.
-#
-# Those users have nothing to do with each other, and they can still share one copy
-# of the prefix. In a busy deployment this is often the larger prize: a popular
-# prompt opening is re-sent thousands of times a minute, by strangers, and only the
-# last few hundred tokens of each request differ. It also makes the *order* in
-# which an application assembles its prompt a performance decision, and it raises a
-# fair question about what two strangers sharing memory implies for isolation. We
-# measure the first and discuss the second later in the lecture.
+# the deployment receives are token-for-token identical. You will see concrete examples of these in lecture 6.
 #
 # ## The idea
 #
 # **Prefix caching** keeps that KV cache — the per-token keys and values every
 # later token attends to (lecture 2) — around after a request finishes, and reuses
-# it. If a new prompt starts with tokens whose KV is still in GPU memory, those
-# tokens are not prefilled again; the model starts computing at the first token it
+# it. If a new prompt starts with a set of tokens whose KV is still around, those
+# tokens are not prefilled again; the model simply reuses the KV from the past and
+# only computes KV for the tokens it
 # has never seen. It costs nothing in accuracy: the KV of a token depends only on
 # the tokens before it, so a reused block holds exactly the values a fresh prefill
 # would have produced.
