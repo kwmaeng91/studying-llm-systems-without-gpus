@@ -57,22 +57,82 @@
 #
 # Repetition is not confined to one conversation. *Every* user of an application
 # sends that same system prompt, so the opening thousand tokens of every request the
-# deployment receives are token-for-token identical — and those users have nothing
-# to do with each other. What repeats across users is usually one of four things:
+# deployment receives are token-for-token identical, even though those users have
+# nothing to do with each other.
 #
-# - **The system prompt**, as described above.
-# - **Tool definitions.** If the application lets the model call tools, every
-#   request must carry the name, description and JSON schema of every tool. In the
-#   agent traces we read in lecture 6, a web-search worker's prompt is about 1,500
-#   tokens, roughly two thirds of which is a fixed system prompt followed by the
-#   JSON schemas of the tools it may call — identical in every turn that worker
-#   takes, in every task the system runs.
-# - **Few-shot examples.** A classifier or an extractor that shows the model ten
-#   worked examples sends those same ten examples in front of every new input.
-# - **A document that many people ask about.** vLLM's documentation gives this as
-#   the canonical case for prefix caching: the same manual or annual report at the
-#   top of the prompt, a different question underneath it each time. A coding
-#   assistant sending the same repository files is the same pattern.
+# It helps to see what that text actually is. The excerpts below are decoded from
+# the recorded traces of [OWL](https://github.com/camel-ai/owl) (Hu et al., NeurIPS
+# '25), the open-source multi-agent system we take apart in lecture 6 — this is
+# verbatim what it sent to the model, elided where marked. Every request its
+# web-search worker makes opens with a **system prompt**:
+#
+# ```text
+# You are a helpful assistant that can search the web, extract webpage content,
+# simulate browser actions, and provide relevant information to solve the given task.
+# Keep in mind that:
+# - Do not be overly confident in your own knowledge. Searching can provide a
+#   broader perspective and help validate existing knowledge.
+# - If the search snippet is unhelpful but the URL comes from an authoritative
+#   source, try visit the website for more details.
+# - When looking for specific numerical values (e.g., dollar amounts), prioritize
+#   reliable sources and avoid relying only on search snippets.
+# - When solving tasks that require web searches, check Wikipedia first before
+#   exploring other websites.
+# [...]
+# ```
+#
+# Directly below it come the **tool definitions** — the name, description and
+# argument schema of each of the eight tools this worker may call. Two of them:
+#
+# ```text
+# namespace functions {
+#
+# // Use Google search engine to search information for the given query.
+# type search_google = (_: {
+# // The query to be searched.
+# query: string,
+# // The number of result pages to retrieve.
+# num_result_pages: number,
+# }) => any;
+#
+# // Search the entity in WikiPedia and return the summary of the required page,
+# // containing factual information about the given entity.
+# type search_wiki = (_: {
+# // The entity to be searched.
+# entity: string,
+# }) => any;
+#
+# [... six more ...]
+# }
+# ```
+#
+# A different role, OWL's planner, instead carries a page of **worked examples** of
+# the judgement it is being asked to make — the agent's version of the few-shot
+# examples a classifier puts in front of every input:
+#
+# ```text
+# Here are some scenarios where using code is the preferred approach:
+# 1. Tasks requiring access to a large number of webpages. Example: "How many times
+#    was a Twitter/X post cited as a reference on English Wikipedia pages for each
+#    day of August in the last June 2023 versions of the pages?" Reason: Manually
+#    checking each Wikipedia page would be highly inefficient, while Python code can
+#    systematically fetch and process the required data.
+# 2. Data processing involving complex filtering or calculations. Example: "Analyze
+#    all article titles on Hacker News in March 2024 and find the top 10 most
+#    frequently occurring keywords." Reason: This task requires processing a large
+#    amount of text data, which is best handled programmatically.
+# [...]
+# ```
+#
+# None of this depends on the user. The web-search worker's prompt runs to about
+# 1,500 tokens before the actual task is even mentioned, roughly two thirds of it
+# the two blocks above, repeated identically in every turn that worker takes and in
+# every task the system runs.
+#
+# The fourth common case has no quotable form: a document that many people ask
+# about — the same manual, contract or repository file pasted above a different
+# question each time. vLLM's documentation gives exactly that as the canonical case
+# for turning prefix caching on.
 #
 # How much of a real workload this covers has been measured. Mooncake (Qin et al.,
 # FAST '25), the serving system behind the Kimi chatbot, reports from its production
