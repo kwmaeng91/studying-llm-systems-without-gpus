@@ -301,13 +301,14 @@ for pc in (False, True):
                      prefix_caching=pc, max_tokens=65536)
     t = task_times(r)
     agent[f"prefix caching {'on' if pc else 'off'}"] = {
-        "hit rate": r.cache_hit_rate,
+        "KV cache hit rate": r.cache_hit_rate,
         "task time p50 (s)": t.median(), "task time p90 (s)": t.quantile(0.9),
         **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)", "TPOT p50 (ms)", "throughput (tok/s)"]]}
 pd.DataFrame(agent).round(2)
 
 # %% [markdown]
-# The measured hit rate, 60%, lands within a percent of the hand-computed ideal.
+# The measured KV cache hit rate, 60%, lands within a percent of the hand-computed
+# ideal.
 # Blocks *are* evicted during the run (`r.cache` reports tens of thousands), but
 # the replica is large enough that the evicted ones are mostly blocks nobody comes
 # back to. Prefill work drops by 60%, TTFT by 6×, and the median task finishes
@@ -401,7 +402,7 @@ for policy in ("round_robin", "lor", "sticky_lor", "dynamo_kv"):
                      num_replicas=4, prefix_caching=True, global_scheduler=policy,
                      max_tokens=65536)
     t = task_times(r)
-    routing[policy] = {"hit rate": r.cache_hit_rate, "task time p50 (s)": t.median(),
+    routing[policy] = {"KV cache hit rate": r.cache_hit_rate, "task time p50 (s)": t.median(),
                        "task time p90 (s)": t.quantile(0.9),
                        **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)"]]}
 pd.DataFrame(routing).T.round(2)
@@ -444,7 +445,8 @@ for name, extra in policies.items():
                      prefix_caching=True, max_tokens=65536, extra=extra)
     t = task_times(r)
     sched[name] = {"task time p50 (s)": t.median(), "task time p90 (s)": t.quantile(0.9),
-                   **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)", "makespan (s)"]]}
+                   **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)",
+                                  "total execution time (s)"]]}
 pd.DataFrame(sched).T.round(2)
 
 # %% [markdown]
@@ -454,7 +456,8 @@ pd.DataFrame(sched).T.round(2)
 # Ordering by session age does the opposite at the tail — it protects old sessions
 # by making new ones wait.
 #
-# Note what did *not* change: the makespan. No queue order creates GPU capacity.
+# Note what did *not* change: the total execution time. No queue order creates GPU
+# capacity.
 # Scheduling moves latency between tasks; it does not reduce the total work. And
 # back on the lightly loaded replica of the previous section, the same policies
 # change the task time by a fraction of a percent, because there is almost nothing
@@ -530,12 +533,12 @@ lsg.quiz([
                  "It sends every session to replica 0"],
      "answer": 1,
      "explain": "Affinity maximises hits but gives up the freedom to move work away from a busy replica, e.g. one that has just received a fan-out burst."},
-    {"q": "Shortest-job-first improved the median task time but left the makespan unchanged. What does that tell you?",
+    {"q": "Shortest-job-first improved the median task time but left the total execution time of the whole run unchanged. What does that tell you?",
      "options": ["The scheduler is broken",
                  "Queue order redistributes waiting time between tasks; it does not create GPU capacity",
                  "The workload was not actually loaded"],
      "answer": 1,
-     "explain": "Total work is fixed. Scheduling decides who waits; only more hardware, less work (caching), or cheaper work changes the makespan."},
+     "explain": "Total work is fixed. Scheduling decides who waits; only more hardware, less work (caching), or cheaper work shortens the run itself."},
     {"q": "A session waits 22 s for a tool. What is the dilemma for the replica holding its KV cache?",
      "options": ["Whether to keep the blocks (idle memory) or evict them (a full re-prefill when the turn returns)",
                  "Whether to decode ahead speculatively",

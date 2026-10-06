@@ -175,6 +175,8 @@ class Result:
         ``prefill tokens`` counts every prompt token the replica was asked for,
         ``cached tokens`` the ones it found already in the KV cache, and
         ``evictions`` how many cached blocks it had to throw away to make room.
+        ``total execution time (s)`` in :meth:`summary` is the wall-clock span of the
+        whole run; the per-request end-to-end latency is ``E2E p50 (s)``.
         """
         rows = {}
         for f in sorted(self.out_dir.rglob("eviction_metrics_replica_*.json")):
@@ -182,7 +184,7 @@ class Result:
             rows[int(f.stem.rsplit("_", 1)[-1])] = {
                 "prefill tokens": d["sum_prefill_tokens"],
                 "cached tokens": d["sum_kvhit_tokens"],
-                "hit rate": d["token_cache_hit_rate"],
+                "KV cache hit rate": d["token_cache_hit_rate"],
                 "evictions": d["num_evictions"],
             }
         return pd.DataFrame(rows).T.rename_axis("replica")
@@ -219,7 +221,7 @@ class Result:
             "E2E p50 (s)": self.e2e.median(),
             "queueing p50 (ms)": 1e3 * r["request_scheduling_delay"].median(),
             "throughput (tok/s)": r["request_num_tokens"].sum() / makespan,
-            "makespan (s)": makespan,
+            "total execution time (s)": makespan,
         }).round(3)
 
     @property

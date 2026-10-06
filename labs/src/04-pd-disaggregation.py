@@ -296,7 +296,7 @@ rows = {}
 for name, r in {"chunked (2 replicas)": run_chunked(2, trace=chat, num_requests=300, qps=8, keep_steps=True),
                 "PD 1:1": run_pd(1, 1, trace=chat, num_requests=300, qps=8, keep_steps=True)}.items():
     s = r.summary()
-    busy = r.steps.groupby("replica")["batch_execution_time"].sum() / s["makespan (s)"]
+    busy = r.steps.groupby("replica")["batch_execution_time"].sum() / s["total execution time (s)"]
     rows[name] = {**s[cols].round(0).to_dict(),
                   **{f"replica {k} busy": f"{v:.0%}" for k, v in busy.items()}}
 pd.DataFrame(rows)

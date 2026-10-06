@@ -43,11 +43,11 @@ Downloads the simulator into `$LSG_BACKEND_DIR` (default
 | Attribute | Type | Description |
 |---|---|---|
 | `requests` | DataFrame | one row per request, every metric the simulator records (see below) |
-| `summary()` | Series | TTFT/TPOT p50/p99, E2E p50, queueing p50, throughput, makespan |
+| `summary()` | Series | TTFT/TPOT p50/p99, E2E p50, queueing p50, throughput, and the run's total execution time |
 | `ttft`, `tpot`, `e2e` | Series | per-request latencies in seconds |
 | `kv_cache_tokens` | int | KV-cache capacity of one replica, in tokens |
-| `cache` | DataFrame | per replica: prompt tokens asked for, tokens served from the prefix cache, hit rate, blocks evicted |
-| `cache_hit_rate` | float | fraction of all prompt tokens served from the prefix cache |
+| `cache` | DataFrame | per replica: prompt tokens asked for, tokens served from the prefix cache, KV cache hit rate, blocks evicted |
+| `cache_hit_rate` | float | KV cache hit rate: the fraction of all prompt tokens served from the prefix cache |
 | `steps` | DataFrame | one row per forward pass, in order within each `replica`: prefill/decode tokens, batch size, `batch_execution_time` (needs `keep_steps=True`) |
 | `cdf(metric)` | DataFrame | CDF of a batch-level metric such as `batch_size` or `batch_num_tokens` |
 | `out_dir` | Path | raw simulator output directory |
