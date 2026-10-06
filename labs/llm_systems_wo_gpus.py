@@ -405,6 +405,10 @@ def _merge_pd_rows(df: pd.DataFrame) -> pd.DataFrame:
 # while two agent systems solved GAIA tasks (Kim et al., IISWC 2026).
 GAIA_SUBDIR = "GAIATrace"
 
+# Which model served a request, recognised from the first token ids of its prompt
+# (the two systems in the recording used different models for different roles).
+GAIA_MODELS = {"[200006, 17360": "gpt-oss-120b", "[200006, 77944": "gpt-4o"}
+
 # Which agent inside the system issued a request (OWL's roles).
 GAIA_ROLES = {0: "plan", 1: "coordinate", 2: "web search", 3: "code", 4: "web summarize",
               5: "web plan", 6: "web action", 7: "answer", 8: "document", 9: "other"}
@@ -448,9 +452,9 @@ def gaia_sessions(num_sessions: int = 20, max_tokens: int | None = None, seed: i
     """Load recorded agent sessions as one DataFrame, one row per LLM request.
 
     Columns: ``session``, ``turn``, ``role`` (which agent in the system issued it),
-    ``dep`` (turns it waited for), ``num_prefill_tokens``, ``num_decode_tokens``,
-    ``tool_time`` (s), and ``token_ids`` (prompt + output, decodable with
-    :func:`decode`).
+    ``model`` (which model served it in the recording), ``dep`` (turns it waited
+    for), ``num_prefill_tokens``, ``num_decode_tokens``, ``tool_time`` (s), and
+    ``token_ids`` (prompt + output, decodable with :func:`decode`).
 
     Sessions whose longest request exceeds ``max_tokens`` are skipped, because the
     course's prediction grid only covers requests up to
@@ -480,6 +484,8 @@ def gaia_sessions(num_sessions: int = 20, max_tokens: int | None = None, seed: i
             "turn": range(len(d)),
             "role": [GAIA_ROLES.get(int(a), "other") for a in d["agent"]]
                     if "agent" in d else "other",
+            "model": [next((m for p, m in GAIA_MODELS.items() if t.startswith(p)), "unknown")
+                      for t in d["tokens"]],
             "dep": deps,
             "num_prefill_tokens": d["num_prefill_tokens"].astype(int),
             "num_decode_tokens": d["num_decode_tokens"].astype(int),
