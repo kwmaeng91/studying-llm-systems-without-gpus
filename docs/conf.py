@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "_ext"))
 
-project = "LLM Systems Without GPUs"
+project = "Studying LLM Systems Without GPUs"
 author = "Kiwan Maeng and Claude Code"
 copyright = "2026, Kiwan Maeng"
 release = "0.1"

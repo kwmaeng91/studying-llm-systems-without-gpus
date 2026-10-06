@@ -16,28 +16,76 @@
 # either chunk it or move it to its own GPUs (lecture 4). This lecture is about
 # the work we can avoid doing at all.
 #
-# Look at a real chat. Your second message does not arrive alone: the serving
-# system is sent the system prompt, your first message, the assistant's first
-# answer, *and* your second message, because a transformer has no memory between
-# requests. The first three parts were prefilled a few seconds ago, and their
-# **KV cache** — the per-token keys and values every later token attends to
-# (lecture 2) — was computed and then thrown away when the request finished.
+# ## Why the same tokens arrive over and over
 #
-# **Prefix caching** keeps that KV cache around and reuses it. If a new prompt
-# starts with tokens whose KV is still in GPU memory, those tokens are not
-# prefilled again; the model starts computing at the first token it has never
-# seen. It costs nothing in accuracy: the KV of a token depends only on the tokens
-# before it, so a reused block holds exactly the values a fresh prefill would have
-# produced.
+# A language model is a pure function of the tokens you hand it. The server keeps
+# nothing between requests: once your answer has finished streaming, the request's
+# KV cache is freed and, as far as the GPU is concerned, the conversation never
+# happened. Continuity is an illusion maintained by the *client*, which re-sends
+# the entire history every time you press enter.
+#
+# So a two-message chat is not two small requests. It is one small request and one
+# large one, and what actually goes over the wire looks like this:
+#
+# ```text
+# request 1   [system prompt, ~1,000 tokens]
+#             [user: "How do I reverse a list in Python?"]
+#
+# request 2   [system prompt, ~1,000 tokens]            <- identical
+#             [user: "How do I reverse a list in Python?"]   <- identical
+#             [assistant: "Use list.reverse(), or ..."]      <- identical
+#             [user: "What about a tuple?"]                  <- new
+# ```
+#
+# The **system prompt** is the block of text the application puts in front of every
+# conversation and never shows you: who the assistant is supposed to be, what it
+# must refuse to do, today's date, the JSON schema of every tool it may call, and
+# often a handful of examples of good answers. In a serious application it is not
+# short — several hundred to a few thousand tokens, and for an agent carrying a
+# dozen tool definitions, much more (lecture 6).
+#
+# The second request has to carry the first exchange because the model cannot see
+# it otherwise: "What about a tuple?" is meaningless without the question and the
+# answer above it. By the fifth turn, the request opens with four turns of history,
+# and every one of those tokens was computed on this very GPU a minute ago and then
+# thrown away.
+#
+# ### The same text also repeats across users
+#
+# Repetition is not confined to one conversation. *Every* user of an application
+# sends that same system prompt, so the opening thousand tokens of every request
+# the deployment receives are token-for-token identical. A support assistant pastes
+# the same product manual into the prompt for everyone who asks about it; a coding
+# assistant sends the same repository files; a classifier sends the same twenty
+# few-shot examples in front of each new input.
+#
+# Those users have nothing to do with each other, and they can still share one copy
+# of the prefix. In a busy deployment this is often the larger prize: a popular
+# prompt opening is re-sent thousands of times a minute, by strangers, and only the
+# last few hundred tokens of each request differ. It also makes the *order* in
+# which an application assembles its prompt a performance decision, and it raises a
+# fair question about what two strangers sharing memory implies for isolation. We
+# measure the first and discuss the second later in the lecture.
+#
+# ## The idea
+#
+# **Prefix caching** keeps that KV cache — the per-token keys and values every
+# later token attends to (lecture 2) — around after a request finishes, and reuses
+# it. If a new prompt starts with tokens whose KV is still in GPU memory, those
+# tokens are not prefilled again; the model starts computing at the first token it
+# has never seen. It costs nothing in accuracy: the KV of a token depends only on
+# the tokens before it, so a reused block holds exactly the values a fresh prefill
+# would have produced.
 #
 # :::{admonition} Learning goals
 # - Explain how a KV cache is addressed by block hashes, and why reuse works only
 #   on a *prefix*.
-# - Measure the effect of prefix caching on prefill work and TTFT for multi-turn
-#   conversations and for prompts that share a long preamble.
+# - Measure the effect of prefix caching on prefill work and TTFT, both within one
+#   conversation and across users who share a long preamble.
 # - Explain the two things that destroy a hit: eviction under memory pressure, and
 #   a request landing on a replica that does not hold the prefix.
-# - Lay out a prompt so that it is cache-friendly.
+# - Lay out a prompt so that it is cache-friendly, and say what cross-user sharing
+#   costs as well as what it buys.
 # :::
 
 # %% [markdown]
@@ -229,14 +277,15 @@ fig.tight_layout()
 # %% [markdown]
 # ## Prompt layout: where the shared text goes
 #
-# Multi-turn chat is not the only source of repetition. Independent users of the
-# same application all send the same system prompt, the same tool definitions, and
-# the same few-shot examples — often thousands of tokens of identical text before
-# anything user-specific appears.
+# Now the cross-user case from the introduction. These 60 requests belong to 60
+# different users with nothing in common except the application they are talking
+# to — no conversation history to reuse, and the first user to arrive gets no help
+# from the cache at all. What they share is the preamble the application prepends:
+# system prompt, tool definitions, few-shot examples.
 #
-# Here we take single-turn requests from 60 different users and give them a shared
-# preamble of 0, 512, or 2,048 tokens, placed either before the user's question or
-# after it. The text is the same in both cases; only the order differs.
+# We give them a shared preamble of 0, 512, or 2,048 tokens, placed either before
+# the user's question or after it. The text is the same in both cases; only the
+# order differs.
 
 # %%
 layout = {}
@@ -255,8 +304,10 @@ pd.DataFrame(layout).T.round(2)
 
 # %% [markdown]
 # With the preamble first, 90% of the prompt tokens are shared and the median TTFT
-# barely moves as the preamble grows from nothing to 2,048 tokens: the first
-# request pays for it, and everyone else gets it for free.
+# barely moves as the preamble grows from nothing to 2,048 tokens: one request pays
+# for the preamble and the other 59 read its KV cache. Nobody had to arrange this —
+# the users never interact, and the application did not ask for any of it. Two
+# requests sharing an opening is all it takes.
 #
 # Move the identical text behind the user's question and the hit rate is exactly
 # zero. The first block already differs between users, so the chained hash gives
@@ -369,19 +420,25 @@ pd.DataFrame(routing).T.round(2)
 # - **It changes the shape of the load, not just its size.** With most prefills
 #   skipped, the replica becomes more decode-dominated, which changes the right
 #   chunk size (lecture 3) and the right prefill:decode split (lecture 4).
-# - **Sharing between users has consequences.** Two different users whose prompts
-#   start with the same text share blocks. That is where most of the benefit of a
-#   shared system prompt comes from, but it also means one user's TTFT reveals
-#   whether someone else recently sent a similar prefix — a known timing side
-#   channel. Systems that care isolate caches per tenant, and pay for it in hit
-#   rate.
+# - **Cross-user sharing cuts both ways.** The experiment above worked precisely
+#   because two strangers' requests touched the same blocks, and that is where much
+#   of the benefit of a shared system prompt comes from. But a hit is also faster
+#   than a miss in a way anyone can measure: from its own TTFT, a request can tell
+#   whether the prefix it just sent was already in the cache, and therefore whether
+#   *someone else* recently sent the same opening. That is a known timing side
+#   channel, and it matters when the shared opening is not public — a tenant's
+#   confidential system prompt, or a document pasted in front of a question.
+#   Deployments that care give each tenant (or each user) its own cache namespace
+#   and share only a prefix they have declared public, and they pay for that
+#   isolation in hit rate.
 #
 # ## Summary
 #
 # | | Effect |
 # |---|---|
 # | What is reused | KV blocks of a matching **prefix**, named by a chained hash of their tokens |
-# | Biggest win | later turns of a conversation, and long shared system prompts / tool definitions |
+# | Biggest win | later turns of one conversation, and long openings (system prompt, tool definitions, pasted documents) shared across *different* users |
+# | Who shares | anyone whose prompt starts with the same tokens, by accident or by design; no coordination needed, and no isolation either |
 # | Effect on TTFT | the computed part of the prompt stops growing with the conversation |
 # | Effect on TPOT / decode | indirect only (fewer and shorter prefill chunks per step) |
 # | Killed by | variable text placed before shared text; eviction under memory pressure; routing to another replica |
