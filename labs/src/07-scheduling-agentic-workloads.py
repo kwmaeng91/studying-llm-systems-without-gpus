@@ -21,9 +21,7 @@
 #
 # :::{admonition} Status: draft
 # :class: warning
-# This lecture is still being written. The experiments below are real, but the
-# write-up is thinner than the earlier lectures, and most of the comparisons are a
-# single operating point where they deserve a sweep.
+# This lecture is still being written. The text and experiments are not in the right shape yet.
 # :::
 #
 # :::{note}
