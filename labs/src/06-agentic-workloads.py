@@ -189,25 +189,16 @@ fig.tight_layout()
 # conversation with its own system prompt. Within a worker's stretch, every turn
 # adds a tool result to the prompt. Again, this is how OWL was designed and not necessarily universal.
 #
-# The flat band of twelve large turns in the middle is not a conversation at all.
-# It is a **fan-out**: the web worker retrieved a long page, split it into twelve
-# pieces, and asked the model about each piece *in parallel*. They all depend on
-# the same turn and a later turn joins them:
-
-# %%
-one[one["role"] == "web summarize"].drop(columns="token_ids").head(4)
-
-# %% [markdown]
-# All twelve are released at the same instant, each with about 9,000 prompt tokens:
-# 100,000 tokens of prefill arriving at one replica at once, after a 22 s tool call
-# during which that replica had nothing from this session to do.
-# You don't have to understand every piece that is happening in this plot; having a sense
+# The flat band of twelve large turns in the middle is the web worker retrieving a long page, spliting it into twelve
+# pieces, and asking the model to summarize each piece in parallel. This is again a specific design
+# made by the OWL authors to keep the prompt (prefill) length small and is not fundamental.
+# You don't have to understand every piece that is happening in this plot, and many things are specific to the
+# particular design of this agent; having a sense
 # that multi-agent systems are complex is probably enough.
 #
 # ## Tokens, time, and tools
 #
-# Now the whole sample. Three numbers decide what this workload does to a serving
-# system:
+# Now, let look at prompt (input) and output tokens for each sub-agent:
 
 # %%
 tokens = pd.Series({
@@ -237,48 +228,26 @@ ax[1].set(xlabel="tool time (s)", ylabel="fraction of tool calls", xscale="log",
 fig.tight_layout()
 
 # %% [markdown]
-# Prompts outnumber outputs by about 11:1 in tokens, and many turns generate only a
-# few dozen tokens — a tool call, a worker id, a yes/no. The chat workloads of
-# lectures 1–4 were 256 in and 256 out, so by token count this looks like the ideal
-# case for everything lecture 4 said about prefill-heavy traffic.
+# You can see that different sub-agent, depending on their role, show different behaviors:
+# Coordinator has a distinct group of different prompt but similar output lengths;
+# Web search agent has varying prompt length but similar output length; and web summarizer agent
+# has high prompt length and relative shorter output length.
+# These make sense once you think of what each sub-agent do.
+# In general, prompt (input) is longer than output by about 11:1 in tokens,
+# so these are prefill-heavy traffic.
 #
-# Tokens are not time, though. A prompt token costs roughly 0.25 ms of GPU time on
-# this replica, while an output token costs about 45 ms — nearly 200× more —
+# Prompt and output tokens cost differently, though. A prompt token costs roughly 0.25 ms of GPU time on
+# our simulated replica, while an output token costs about 45 ms — nearly 200× more —
 # because decode is memory-bound (lecture 1). A turn with 9,000 prompt tokens and
 # 180 output tokens spends a couple of seconds on its prompt and eight on its
-# answer. So agent traffic is prompt-heavy in tokens and decode-heavy in time, and
-# the two halves of that sentence explain different results below.
+# answer. So being prefill-heavy does not always mean prefill is going to be the bottleneck (it may or may not).
+# Another thing to consider is the prefix cache (lecture 5) — prefill gets much cheaper with a high prefix cache hit rate.
 #
-# One more thing the trace records: which model served each request. OWL does not
-# use one model for everything.
+# ## Revisiting prefix caching for agentic workloads
 #
-# %%
-pd.set_option("display.max_colwidth", 60)
-sessions.groupby("model").agg(requests=("turn", "size"),
-                              prompt_tokens=("num_prefill_tokens", "sum"),
-                              output_tokens=("num_decode_tokens", "sum"),
-                              roles=("role", lambda r: ", ".join(sorted(set(r)))))
-
-# %% [markdown]
-# The split is clean, and it is a split by job. The sub model (`gpt-4o` here) takes
-# the roles that read and classify — web search, planning, reading documents,
-# writing the final answer — and generates almost nothing: 1.1M prompt tokens
-# against 32k of output, a ratio of 33:1. The main model (`gpt-oss-120b`) takes
-# coordination, code and summarisation, and does most of the generating: 0.9M
-# prompt tokens against 141k of output, about 7:1.
-#
-# A production deployment of this system is therefore not one serving problem but
-# two, with different prompt:output shapes, different hardware needs, and their own
-# queues. **The rest of this lecture ignores that and serves every request with one
-# 32B model**, which keeps the experiments readable but is the single biggest way
-# the lab departs from the system that produced the trace. The simulator can model
-# the real thing — lecture 4's `replica_groups` take a model per group, and the
-# trace's `model_id` column routes each request to the right pool — and exercise 5
-# asks you to work out what the split should be.
-#
-# ## How much of this is reusable?
-#
-# Before simulating anything, we can compute what a perfect, infinitely large
+# Now, let's see how much prefix cache hit this trace will get.
+# Are these agentic traces reusing a lot of prefixes?
+# First, we compute what a perfect, infinitely large
 # prefix cache would do, using exactly the rule from lecture 5: chain-hash every
 # full 16-token block, then count how many leading blocks of each prompt have been
 # seen before.
