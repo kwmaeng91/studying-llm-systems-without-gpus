@@ -378,22 +378,23 @@ breakdown.round(1)
 # %% [markdown]
 # First, you can see that the task is executed as a chain of queries, mostly sequential but
 # sometimes parallel. Many agentic systems are mostly sequential, while people are exploring various
-# ways to incorporate more parallel structures [TODO: Cite LATS paper].
-# Second, you can see that the blue (decode) parts dominate. This is because prefix cache hit
-# is high, and currently there is no other contention to the GPU.
-# With less prefix cache hit and many other requests in the same GPU, the bars will look different
+# ways to incorporate more parallel structures (for example LATS,
+# [Zhou et al., ICML '24](https://arxiv.org/abs/2310.04406)).
+# Second, you can see that the blue (decode) parts dominate. This is because the prefix cache hit
+# rate is high, and currently there is no other contention to the GPU.
+# With a lower prefix cache hit rate and many other requests on the same GPU, the bars will look different
 # (because prefill cannot be batched as nicely as decode, as we learned in lecture 2).
 # Again, the twelve parallel tasks in the middle are OWL trying to summarize a very long web-scraped
-# texts while not significantly increasing the context length. 
+# text while not significantly increasing the context length.
 #
 # ## Summary
 #
 # | | What we saw |
 # |---|---|
 # | Shape of a task | an agentic task is mostly a series of sequential requests but sometimes parallel |
-# | Tokens | usually larger input tokens than output tokens, but depends on the agent's role |
+# | Tokens | usually more input tokens than output tokens, but it depends on the agent's role |
 # | Time | decode still dominates (especially when the batch size is low and prefix cache hit rate is high) |
-# | Prefix caching | hit rate is around 60% and improves 6× of the TTFT, but only about a quarter of the median task time |
+# | Prefix caching | hit rate is around 60% and improves TTFT by 6×, but the median task time by only about a quarter |
 #
 # ## Exercises
 #

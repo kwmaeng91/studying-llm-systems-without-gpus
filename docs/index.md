@@ -46,7 +46,7 @@ The website and lecture materials were built with the help of Claude Code. I’v
   - real agent traces: sessions, tool calls, task-level latency
 * - 7
   - {doc}`lectures/07-scheduling-agentic-workloads`
-  - routing and queue order for agent traffic (draft)
+  - agent traffic on a cluster: load, replica carving, disaggregation, routing, queue order (draft)
 ```
 
 :::{warning}

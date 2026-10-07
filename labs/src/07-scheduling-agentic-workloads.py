@@ -12,20 +12,28 @@
 # By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
 #
 # {doc}`06-agentic-workloads` followed a single agent task through one replica. A
-# serving system does not get to do that: it carries many tasks at once, and it has
-# to decide, for every turn of every task, *which replica* should take it and
-# *which waiting turn* a replica should serve next. This lecture is about those two
-# decisions on the same recorded GAIA traces.
+# serving system does not get to do that: it carries many tasks at once, and every
+# knob we met in lectures 2–5 has to be set for traffic that looks nothing like
+# chat. This lecture puts the same recorded GAIA traces on a cluster and turns
+# those knobs one at a time — how fast tasks arrive, how the GPUs are carved into
+# replicas, chunked prefill against prefill–decode disaggregation, where the router
+# sends each turn, and which waiting turn a replica serves next.
 #
 # :::{admonition} Status: draft
 # :class: warning
-# This lecture is still being written. The routing and scheduling experiments below
-# are real, but the lecture is missing the comparison it needs most: chunked prefill
-# ({doc}`03-chunked-prefill`) against prefill–decode disaggregation
-# ({doc}`04-pd-disaggregation`) on agentic traffic, where prompts are long, mostly
-# cached, and arrive in bursts. That is coming later.
+# This lecture is still being written. The experiments below are real, but the
+# write-up is thinner than the earlier lectures, and most of the comparisons are a
+# single operating point where they deserve a sweep.
 # :::
-
+#
+# :::{note}
+# The runs here are larger than in earlier labs: 100 recorded tasks against up to
+# eight GPUs, with a wider runtime-predictor grid (`max_tokens=65536`, shared with
+# lecture 6). Expect the whole notebook to take several minutes, and the first run
+# of a new (model, GPU, parallelism) combination to spend about a minute fitting
+# its predictor.
+# :::
+#
 # %% [markdown]
 # ## Setup
 #
@@ -55,6 +63,16 @@ def task_times(result):
     return q.groupby("session").apply(
         lambda d: d["done"].max() - d["request_arrived_at"].min(), include_groups=False)
 
+def run(kv=False, **kwargs):
+    """One simulation of the busy trace, reported per task as well as per request."""
+    r = lsg.simulate(**{**SYSTEM, **kwargs}, trace=busy_trace, num_requests=len(busy_sessions),
+                     prefix_caching=True, max_tokens=65536)
+    t = task_times(r)
+    out = {"KV cache hit rate": r.cache_hit_rate,
+           "task time p50 (s)": t.median(), "task time p90 (s)": t.quantile(0.9),
+           **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)", "total execution time (s)"]]}
+    return {"KV tokens per replica": r.kv_cache_tokens, **out} if kv else out
+
 # %% [markdown]
 # ## A busier cluster
 #
@@ -71,6 +89,116 @@ print(f"{len(busy_sessions)} requests, "
       f"{busy_sessions.num_prefill_tokens.sum() / 1e6:.1f}M prompt tokens")
 
 # %% [markdown]
+# ## How much does the arrival rate matter?
+#
+# In lecture 2, the arrival rate was *the* knob: past the knee, the batch could not
+# grow, requests queued, and TTFT climbed. Agent traffic does not behave that way,
+# because a task is a chain. However many tasks are in flight, each of them only
+# has a turn or two running at any moment, and the rest of its time is spent
+# waiting for a tool or for its own previous turn. The cluster is throttled by the
+# workload's dependencies rather than by us.
+#
+# Let's see how much it matters, from one new task every four seconds to four new
+# tasks a second — a 16× range.
+
+# %%
+arrival = {q: run(qps=q, num_replicas=4, global_scheduler="sticky_lor")
+           for q in (0.25, 0.5, 1.0, 2.0, 4.0)}
+pd.DataFrame(arrival).T.rename_axis("new tasks per second").round(2)
+
+# %% [markdown]
+# Sixteen times the arrival rate buys a 12% worse median task, and the time to get
+# through all 100 tasks barely moves. Compare that with lecture 2, where doubling
+# the load past the knee sent TTFT up by orders of magnitude.
+#
+# This is worth remembering when sizing an agent deployment: the useful unit of
+# load is *concurrent tasks*, not requests per second, and the way to overload this
+# cluster is to give it more tasks at once, not to hand it the same tasks faster.
+#
+# ## Carving the same GPUs differently
+#
+# Eight A100s can be one replica of eight GPUs, two of four, or four of two. The
+# model is the same, the hardware is the same, and the three options differ in what
+# a replica can do:
+#
+# - **More replicas** run more turns in parallel and keep each all-reduce small,
+#   but each replica has its own KV cache, so the same prefixes end up stored
+#   several times and a session only hits on the replica it was sent to.
+# - **Fewer, wider replicas** put all the memory behind one cache — splitting the
+#   weights across eight GPUs leaves far more room for KV than splitting them
+#   across two — but every turn queues behind every other turn.
+
+# %%
+carving = {f"{n} x TP{tp}": run(kv=True, tensor_parallel=tp, num_replicas=n, qps=1.0,
+                                global_scheduler="sticky_lor")
+           for n, tp in ((4, 2), (2, 4), (1, 8))}
+pd.DataFrame(carving).T.round(2)
+
+# %% [markdown]
+# Two of four wins here, and the two ends lose for opposite reasons. Four narrow
+# replicas spread the cache thinnest (the lowest hit rate of the three) and give
+# the worst tail TTFT, because a session is stuck with whichever replica it was
+# pinned to. One wide replica has the best hit rate — every prefix is in the one
+# cache — and six times the KV capacity of a TP2 replica, because the weights are
+# spread over eight GPUs instead of two and whatever is left over becomes cache.
+# Its median TTFT is still twice as bad as the other two, because every one of the
+# hundred tasks queues in the same place.
+#
+# The middle option keeps enough parallelism to absorb a fan-out while keeping the
+# cache concentrated. That balance is specific to this workload; a trace with
+# shorter prompts and less sharing would push the answer towards more replicas.
+#
+# ## Chunked prefill or disaggregation?
+#
+# Lectures 3 and 4 gave two ways to stop long prefills from disturbing decodes:
+# chop the prefill into chunks and interleave it, or move prefill and decode onto
+# separate GPUs. Agent traffic is the hard case for both — prompts are long, most
+# of them are already cached, and a fan-out can drop a dozen of them on a replica
+# at once.
+#
+# We compare the chunked cluster we have been using with two disaggregated ones
+# built from the same eight GPUs, using lecture 4's helper. One difference is
+# forced on us: a disaggregated cluster needs the PD-aware router
+# (`load_aware`), so these rows do not get the session affinity that `sticky_lor`
+# gives the chunked row.
+
+# %%
+def pd_cluster(n_prefill, n_decode, prefill_chunk_size=4096):
+    """n_prefill prefill replicas and n_decode decode replicas, each on two A100s."""
+    def group(role, n, chunk_size):
+        return {"role": role, "num_replicas": n,
+                "replica_config": {"model_name": SYSTEM["model"], "device": SYSTEM["device"],
+                                   "tensor_parallel_size": SYSTEM["tensor_parallel"],
+                                   "network_device": "a100_dgx", "pd_disaggregation": 1},
+                "replica_scheduler_config": {"type": "vllm_v1", "batch_size_cap": 128,
+                                             "chunk_size": chunk_size}}
+    return {"replica_groups": [group("prefill", n_prefill, prefill_chunk_size),
+                               group("decode", n_decode, 512)],
+            "replica_groups_pools": [{"prefill": list(range(n_prefill)),
+                                      "decode": list(range(n_prefill, n_prefill + n_decode)),
+                                      "cross_node": False}]}
+
+split = {"chunked, 4 replicas": run(qps=1.0, num_replicas=4, global_scheduler="sticky_lor")}
+for n_prefill, n_decode in ((2, 2), (3, 1)):
+    split[f"PD {n_prefill}:{n_decode}"] = run(qps=1.0, global_scheduler="load_aware",
+                                              replica_groups=pd_cluster(n_prefill, n_decode))
+pd.DataFrame(split).T.round(2)
+
+# %% [markdown]
+# Disaggregation does well here, and PD 3:1 — three quarters of the cluster
+# prefilling — does best: the same median task time as the chunked cluster with a
+# tail TTFT about two and a half times lower. That split looks lopsided until you
+# remember what the trace is made of. Prompts are enormous, answers are short, and
+# the bursts that hurt are bursts of *prefill*; a large prefill pool absorbs a
+# twelve-way fan-out without any of it landing on a GPU that is streaming someone
+# else's answer.
+#
+# What disaggregation gives up is some of the cache. Both PD rows hit a few points
+# lower than the chunked row, because a session's turns are spread over the prefill
+# pool instead of returning to one replica. Lecture 5's rule still applies, and it
+# is the reason a production disaggregated stack also routes by prefix.
+
+# %% [markdown]
 # ## Routing: cache affinity against load balance
 #
 # Each replica keeps its own KV cache, so a request only hits what the replica it
@@ -84,15 +212,8 @@ print(f"{len(busy_sessions)} requests, "
 # plain least-outstanding-requests as a cache-blind baseline.
 
 # %%
-routing = {}
-for policy in ("round_robin", "lor", "sticky_lor", "dynamo_kv"):
-    r = lsg.simulate(**SYSTEM, trace=busy_trace, num_requests=len(busy_sessions), qps=1.0,
-                     num_replicas=4, prefix_caching=True, global_scheduler=policy,
-                     max_tokens=65536)
-    t = task_times(r)
-    routing[policy] = {"KV cache hit rate": r.cache_hit_rate, "task time p50 (s)": t.median(),
-                       "task time p90 (s)": t.quantile(0.9),
-                       **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)"]]}
+routing = {policy: run(qps=1.0, num_replicas=4, global_scheduler=policy)
+           for policy in ("round_robin", "lor", "sticky_lor", "dynamo_kv")}
 pd.DataFrame(routing).T.round(2)
 
 # %% [markdown]
@@ -124,14 +245,7 @@ pd.DataFrame(routing).T.round(2)
 policies = {"FCFS": {},
             "session FCFS": {"--vllm_v1_scheduler_config_session_priority": True},
             "shortest job first": {"--vllm_v1_scheduler_config_sjf_priority": True}}
-sched = {}
-for name, extra in policies.items():
-    r = lsg.simulate(**SYSTEM, trace=busy_trace, num_requests=len(busy_sessions), qps=1.0,
-                     prefix_caching=True, max_tokens=65536, extra=extra)
-    t = task_times(r)
-    sched[name] = {"task time p50 (s)": t.median(), "task time p90 (s)": t.quantile(0.9),
-                   **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)",
-                                  "total execution time (s)"]]}
+sched = {name: run(qps=1.0, extra=extra) for name, extra in policies.items()}
 pd.DataFrame(sched).T.round(2)
 
 # %% [markdown]
@@ -149,27 +263,32 @@ pd.DataFrame(sched).T.round(2)
 #
 # ## Summary
 #
-# | | What we saw |
+# | Knob | What we saw |
 # |---|---|
-# | Routing decides the hit rate | a session's turns want the same prefix, and only the replica that holds it can give them one |
-# | Affinity against balance | sticky routing wins the median, round-robin wins the tail; a KV-aware router sits between them |
-# | Queue order moves latency | shortest-job-first cuts the median task time and TTFT by letting cheap, mostly-cached turns through |
-# | Queue order creates nothing | the total execution time is the same under every policy |
-# | Load means tasks | at a lightly loaded replica none of this matters, because there is no queue to reorder |
+# | Arrival rate | 16× the arrival rate costs 12% of the median task: a chain of dependent turns throttles itself, so load means concurrent *tasks*, not requests per second |
+# | Carving the GPUs | the middle option won; more replicas split the cache and the tail suffers, one wide replica holds every prefix but queues everything in one place |
+# | Chunked vs disaggregated | a prefill-heavy split (PD 3:1) matched the chunked cluster's median task time with a far better tail, at the cost of a few points of hit rate |
+# | Routing | sticky affinity wins the median and the hit rate, round-robin wins the tail, a KV-aware router sits between them |
+# | Queue order | shortest-job-first cuts the median task time and TTFT by letting cheap, mostly-cached turns through, and changes the total execution time not at all |
 #
 # ## Exercises
 #
 # :::{admonition} Try it
 # :class: exercise
 #
-# 1. **Disaggregate.** Build a PD cluster with lecture 4's `pd_cluster` helper
-#    (four replicas, splits 1:3, 2:2, 3:1) and run the busy trace. Which split wins,
-#    and does prefix caching change the answer? (Hint: what is the prefill pool's
-#    hit rate if a session's turns go to different prefill replicas?)
-# 2. **Routing under a tighter replica.** Rerun the routing comparison with
+# 1. **The other split.** Add `PD 1:3` to the disaggregation table. Lecture 4 found
+#    that an undersized prefill pool makes TTFT explode; does it here, and does the
+#    prefix cache hide any of it?
+# 2. **More tasks, not faster tasks.** The arrival sweep barely moved anything.
+#    Load the trace with `num_sessions=48` and with `num_sessions=100` at the same
+#    `qps` and compare. Which of the two kinds of "more load" actually hurts?
+# 3. **Does the carving answer survive?** Repeat the three carvings with prefix
+#    caching off. Does `2 x TP4` still win, and what does that tell you about why
+#    it won?
+# 4. **Routing under a tighter replica.** Rerun the routing comparison with
 #    `batch_size_cap=32`, so each replica can only run 32 requests at once. Which
 #    policy gains the most, and which loses?
-# 3. **Starvation.** `sjf_priority` can leave a long prefill waiting forever. Add
+# 5. **Starvation.** `sjf_priority` can leave a long prefill waiting forever. Add
 #    `--vllm_v1_scheduler_config_sjf_starvation_timeout` (in seconds) and find the
 #    value that keeps most of the median gain without the p99 of the whole run
 #    getting worse.
@@ -194,6 +313,24 @@ lsg.quiz([
                  "The workload was not actually loaded"],
      "answer": 1,
      "explain": "Total work is fixed. Scheduling decides who waits; only more hardware, less work (caching), or cheaper work shortens the run itself."},
+    {"q": "Raising the arrival rate 16× cost only 12% of the median task time. Why does agent traffic behave so differently from lecture 2's chat workload?",
+     "options": ["The replicas were oversized",
+                 "A task is a chain of dependent turns, so however many tasks are in flight, each has only a turn or two running at a time",
+                 "The prefix cache absorbed the extra load"],
+     "answer": 1,
+     "explain": "The workload throttles itself. To load this cluster you add concurrent tasks, not requests per second."},
+    {"q": "Eight GPUs as one TP8 replica had the best KV cache hit rate but the worst median TTFT. What explains both?",
+     "options": ["TP8 is slower per token",
+                 "One replica means one cache that holds every prefix, and one queue that every task has to pass through",
+                 "Prefix caching does not work above TP4"],
+     "answer": 1,
+     "explain": "Fewer, wider replicas concentrate the cache and the memory behind it, and concentrate the queueing too."},
+    {"q": "Why does a prefill-heavy disaggregated split (PD 3:1) suit this trace?",
+     "options": ["Agent answers are long, so decode needs little hardware",
+                 "Prompts are long and answers short, and the bursts that hurt are bursts of prefill, which a large prefill pool can absorb away from the decoding turns",
+                 "Disaggregation raises the cache hit rate"],
+     "answer": 1,
+     "explain": "A twelve-way fan-out is 100,000 tokens of prefill at once. Keeping it off the GPUs that are streaming answers is exactly what lecture 4's separation buys."},
     {"q": "Why does shortest-job-first help this workload in particular?",
      "options": ["Agent turns are short to generate",
                  "Most turns have almost nothing left to prefill once the prefix cache is counted, so they are cheap to let through",
