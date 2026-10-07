@@ -274,23 +274,25 @@ def ideal_hit_rate(df, block=16):
 print(f"ideal prefix-cache hit rate: {ideal_hit_rate(sessions):.1%}")
 
 # %% [markdown]
-# About 60% of all prompt tokens in this workload have been computed before. The
-# number is not higher because of the structure we just saw: every time the
-# coordinator starts a new worker, that worker's prompt begins with a different
-# system prompt, and the twelve fan-out requests share only their instructions, not
-# the page chunk each one carries.
+# About 60% of all prompt tokens in this workload have been computed before and can benefit from prefix caching, and this number roughly matches the
+# GAIATrace paper [TODO: Add citation]. 
+# This number is high, because the system prompt is long, and sub-agents often look at their past conversation history, similar
+# to the multi-turn chat behavior from lecture 6.
+# However, this is much lower than what some other papers (like [TODO: Cite the Agentic AI Workload Characteristics paper from IISWC '26]) reported,
+# where the reported numbers were more like 87--99%.
+# This is because how OWL is designed: as a multi-agent system, OWL runs multiple sub-agents, and there are limited sharing of prompts between different agents.
 #
-# That figure is in the range production systems report. Mooncake
-# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)) measures about 59% reusable prompt tokens on the tool- and agent-style
-# traffic reaching the Kimi chatbot, against about 40% on ordinary conversation —
-# agentic traffic is the better case, because of those long repeated system prompts
-# and tool schemas. It is also an upper bound: it assumes a cache that never
-# evicts, which the next sections do not.
+# Still, the number is (slightly) higher than what Mooncake
+# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)) reported, which was about 59% for tool- and agent-style
+# traffic reaching the Kimi chatbot, and about 40% on ordinary conversation.
+# Again, how you designed the agentic system significantly affects the prefix cache hit rate.
+# Since we still do not have a consensus on what the right design for agentic system is, this number will probably fluctuate in the future until we converge to a decision.
 #
 # ## Serving the trace
 #
-# Now give the trace to the simulator. `lsg.gaia_trace` writes it in the
-# simulator's format, including the token ids and the dependency graph, so turn
+# Now, let's try giving the trace to the simulator. 
+# Here, we simplicitly assume that [TODO:Fill in the simulator setup].
+# `lsg.gaia_trace` writes it in the simulator's format, including the token ids and the dependency graph, so turn
 # *k+1* is released only after turn *k* finishes and its tool call returns. We send
 # one new task every ten seconds to a single replica.
 #
