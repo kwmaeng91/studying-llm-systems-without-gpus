@@ -225,6 +225,17 @@ print(f"Goodput: {ok.index.max()} req/s = {ok['throughput (tok/s)'].max():.0f} o
       f"vs. a raw capacity of ~{online['throughput (tok/s)'].max():.0f} tok/s")
 
 # %% [markdown]
+# ## Summary
+#
+# | | What we saw |
+# |---|---|
+# | Batching prefills | latency grows with the batch and throughput barely moves: the GPU was compute-bound already |
+# | Batching decodes | latency barely moves and throughput grows almost linearly: one read of the weights serves the whole batch |
+# | Continuous batching | a request joins the running batch as soon as there is room, instead of waiting for a batch to be assembled |
+# | Under rising load | two regimes with a sharp knee; past it the batch cannot grow, so requests queue and TTFT climbs while throughput flattens |
+# | What caps the batch | the KV cache, because every running request keeps its context in GPU memory |
+# | Goodput | the load at which the SLO still holds, which is well below the raw token throughput |
+#
 # ## What's next: mixing prefill and decode
 #
 # So far, every request was either all prefill or all decode. Real requests have

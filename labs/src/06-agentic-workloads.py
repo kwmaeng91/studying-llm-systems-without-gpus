@@ -47,8 +47,6 @@
 #   come from.
 # - Reason about task-level latency: what the critical path is, and which
 #   serving-system knobs can and cannot shorten it.
-# - Say which parts of this setup a production agent deployment would recognise,
-#   and which are artefacts of the lab.
 # :::
 
 # %% [markdown]
@@ -189,8 +187,8 @@ fig.tight_layout()
 # conversation with its own system prompt. Within a worker's stretch, every turn
 # adds a tool result to the prompt. Again, this is how OWL was designed and not necessarily universal.
 #
-# The flat band of twelve large turns in the middle is the web worker retrieving a long page, spliting it into twelve
-# pieces, and asking the model to summarize each piece in parallel. This is again a specific design
+# The flat band of twelve large turns in the middle is the web worker retrieving a long page, splitting it into twelve
+# pieces, and asking the model to summarise each piece in parallel. This is again a specific design
 # made by the OWL authors to keep the prompt (prefill) length small and is not fundamental.
 # You don't have to understand every piece that is happening in this plot, and many things are specific to the
 # particular design of this agent; having a sense
@@ -198,7 +196,7 @@ fig.tight_layout()
 #
 # ## Tokens, time, and tools
 #
-# Now, let look at prompt (input) and output tokens for each sub-agent:
+# Now, let's look at prompt (input) and output tokens for each sub-agent:
 
 # %%
 tokens = pd.Series({
@@ -228,13 +226,13 @@ ax[1].set(xlabel="tool time (s)", ylabel="fraction of tool calls", xscale="log",
 fig.tight_layout()
 
 # %% [markdown]
-# You can see that different sub-agent, depending on their role, show different behaviors:
-# Coordinator has a distinct group of different prompt but similar output lengths;
-# Web search agent has varying prompt length but similar output length; and web summarizer agent
-# has high prompt length and relative shorter output length.
-# These make sense once you think of what each sub-agent do.
+# You can see that different sub-agents, depending on their role, show different behaviors:
+# the coordinator has a distinct group of different prompt but similar output lengths;
+# the web search agent has varying prompt length but similar output length; and the web summariser agent
+# has high prompt length and relatively shorter output length.
+# These make sense once you think of what each sub-agent does.
 # In general, prompt (input) is longer than output by about 11:1 in tokens,
-# so these are prefill-heavy traffic.
+# so this is prefill-heavy traffic.
 #
 # Prompt and output tokens cost differently, though. A prompt token costs roughly 0.25 ms of GPU time on
 # our simulated replica, while an output token costs about 45 ms — nearly 200× more —
@@ -245,7 +243,7 @@ fig.tight_layout()
 #
 # ## Revisiting prefix caching for agentic workloads
 #
-# Now, let's see how much prefix cache hit this trace will get.
+# Now, let's see how many prefix cache hits this trace gets.
 # Are these agentic traces reusing a lot of prefixes?
 # First, we compute what a perfect, infinitely large
 # prefix cache would do, using exactly the rule from lecture 5: chain-hash every
@@ -275,23 +273,27 @@ print(f"ideal prefix-cache hit rate: {ideal_hit_rate(sessions):.1%}")
 
 # %% [markdown]
 # About 60% of all prompt tokens in this workload have been computed before and can benefit from prefix caching, and this number roughly matches the
-# GAIATrace paper [TODO: Add citation]. 
+# GAIATrace paper ([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725)).
 # This number is high, because the system prompt is long, and sub-agents often look at their past conversation history, similar
-# to the multi-turn chat behavior from lecture 6.
-# However, this is much lower than what some other papers (like [TODO: Cite the Agentic AI Workload Characteristics paper from IISWC '26]) reported,
+# to the multi-turn chat behavior from lecture 5.
+# However, this is much lower than what some other papers (like Agentic AI Workload Characteristics,
+# [Yuan et al., IISWC '26](https://arxiv.org/abs/2605.26297)) reported,
 # where the reported numbers were more like 87--99%.
-# This is because how OWL is designed: as a multi-agent system, OWL runs multiple sub-agents, and there are limited sharing of prompts between different agents.
+# This is because of how OWL is designed: as a multi-agent system, OWL runs multiple sub-agents, and there is limited sharing of prompts between different agents.
 #
 # Still, the number is (slightly) higher than what Mooncake
 # ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)) reported, which was about 59% for tool- and agent-style
 # traffic reaching the Kimi chatbot, and about 40% on ordinary conversation.
 # Again, how you designed the agentic system significantly affects the prefix cache hit rate.
-# Since we still do not have a consensus on what the right design for agentic system is, this number will probably fluctuate in the future until we converge to a decision.
+# Since we still do not have a consensus on what the right design for an agentic system is, this number will probably fluctuate in the future until we converge to a decision.
 #
 # ## Serving the trace
 #
-# Now, let's try giving the trace to the simulator. 
-# Here, we simplicitly assume that [TODO:Fill in the simulator setup].
+# Now, let's try giving the trace to the simulator.
+# Here, we simply assume that every request, whichever sub-agent issued it and whichever
+# model served it in the recording, goes to a single replica of Qwen2.5-32B on two A100s —
+# the same setup as lectures 3--5, with prefix caching living in that replica's GPU memory.
+# The tool latencies come from the trace, so a turn waits exactly as long as the real tool did.
 # `lsg.gaia_trace` writes it in the simulator's format, including the token ids and the dependency graph, so turn
 # *k+1* is released only after turn *k* finishes and its tool call returns. We send
 # one new task every ten seconds to a single replica.
@@ -388,126 +390,21 @@ breakdown.round(1)
 # twelve turns run at once, and most of the 2 minutes of queueing is those siblings
 # waiting for each other.
 #
-# ## A busier cluster
+# ## Summary
 #
-# One task at a time is not a serving problem. Let's load 100 recorded tasks and
-# run them against four replicas (eight GPUs), one new task per second. Note what
-# "load" means here: the arrival rate matters much less than it did in lecture 2,
-# because a session only ever has a turn or two in flight. Adding load means adding
-# concurrent *tasks*, not sending requests faster.
-
-# %%
-busy_sessions = lsg.gaia_sessions(num_sessions=100, seed=0)
-busy_trace = lsg.gaia_trace(busy_sessions)
-print(f"{len(busy_sessions)} requests, "
-      f"{busy_sessions.num_prefill_tokens.sum() / 1e6:.1f}M prompt tokens")
-
-# %% [markdown]
-# ### Routing: cache affinity against load balance
-#
-# Each replica keeps its own KV cache, so a request only hits what the replica it
-# lands on happens to hold. An agent session is a long chain of requests that all
-# want the same prefix, so the router decides the hit rate. This
-# is why production agent stacks care about routing at all: NVIDIA's
-# [Dynamo](https://github.com/ai-dynamo/dynamo) scores replicas by the prompt
-# tokens they would still have to compute as well as by load, and Mooncake routes
-# around a cluster-wide KV store instead. We compare three of the simulator's
-# policies, plus plain least-outstanding-requests as a cache-blind baseline.
-
-# %%
-routing = {}
-for policy in ("round_robin", "lor", "sticky_lor", "dynamo_kv"):
-    r = lsg.simulate(**SYSTEM, trace=busy_trace, num_requests=len(busy_sessions), qps=1.0,
-                     num_replicas=4, prefix_caching=True, global_scheduler=policy,
-                     max_tokens=65536)
-    t = task_times(r)
-    routing[policy] = {"KV cache hit rate": r.cache_hit_rate, "task time p50 (s)": t.median(),
-                       "task time p90 (s)": t.quantile(0.9),
-                       **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)"]]}
-pd.DataFrame(routing).T.round(2)
-
-# %% [markdown]
-# `round_robin` ignores history and loses a third of the available hits. `lor`
-# (least outstanding requests) recovers some of them without trying, because an
-# idle replica is often the one that just finished this session's previous turn.
-# `sticky_lor`, which pins a session to one replica for its whole life, gets
-# closest to the single-replica hit rate and wins on median task time and median
-# TTFT.
-#
-# The tails go the other way: both cache-aware policies are two to three times
-# worse at p99 than plain round-robin. Affinity means staying on a replica even
-# when it has just been handed a twelve-way fan-out, and the siblings of that burst
-# pay for it. Which side of that trade to take depends on whether the deployment is
-# judged on the median or the tail.
-#
-# ### Scheduling: whose turn goes first
-#
-# Inside a replica, the waiting queue is FCFS by default. The simulator offers two
-# alternatives aimed at agent workloads: `session_priority` orders waiting requests
-# by the age of their *session*, so a task that started long ago is not overtaken
-# by a brand-new one; and `sjf_priority` orders by the prompt tokens actually left
-# to compute, after subtracting the prefix-cache hit. The second is interesting
-# here because many turns have almost nothing to prefill — a cached 9,000-token
-# prompt plus 100 new tokens — and under FCFS they wait behind newcomers that have
-# all 9,000 still to do.
-
-# %%
-policies = {"FCFS": {},
-            "session FCFS": {"--vllm_v1_scheduler_config_session_priority": True},
-            "shortest job first": {"--vllm_v1_scheduler_config_sjf_priority": True}}
-sched = {}
-for name, extra in policies.items():
-    r = lsg.simulate(**SYSTEM, trace=busy_trace, num_requests=len(busy_sessions), qps=1.0,
-                     prefix_caching=True, max_tokens=65536, extra=extra)
-    t = task_times(r)
-    sched[name] = {"task time p50 (s)": t.median(), "task time p90 (s)": t.quantile(0.9),
-                   **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)",
-                                  "total execution time (s)"]]}
-pd.DataFrame(sched).T.round(2)
-
-# %% [markdown]
-# On a single replica carrying 100 tasks, shortest-job-first shortens the median
-# task by about 13% and the median TTFT by 4×: letting the cheap turns through
-# first keeps many sessions moving instead of parking them behind one long prefill.
-# Ordering by session age does the opposite at the tail, protecting old sessions by
-# making new ones wait.
-#
-# What none of them changes is the total execution time, because queue order
-# redistributes waiting rather than creating GPU capacity. And on the lightly
-# loaded replica of the previous section the same policies change the task time by
-# a fraction of a percent: there is almost nothing in the queue to reorder, and the
-# critical path is the session's own chain of decodes and tool calls.
-#
-# ## What this means for a serving system
-#
-# | Observation | Consequence |
+# | | What we saw |
 # |---|---|
-# | Turns are dependent; a task is a chain | Task latency ≈ sum over turns of (queue + prefill + decode + tool). Throughput optimisations that lengthen any turn hurt the user directly. |
-# | Prompts are ~11× the output in tokens | Prefill-heavy: large chunk sizes, prefill-side capacity, and prefix caching all matter (lectures 3–5). |
-# | Output tokens cost ~200× more each | But most *time* is decode. Expect the decode pool, not the prefill pool, to size the cluster (lecture 4). |
-# | ~60% of prompt tokens are a repeat | Prefix caching matters more here than in any workload so far, and the router has to preserve it. |
-# | Fan-out bursts of a dozen requests | Admission and scheduling decide when the join unblocks; p99 TTFT of a *batch of siblings* is what matters, not p99 over all requests. |
-# | Idle gaps while tools run | A session holds KV cache it is not using. Evicting it costs a re-prefill; keeping it costs memory. |
-# | Each role is a different model | A real deployment of this system sizes and tunes two pools, not one (lecture 4). |
+# | Shape of a task | dozens of dependent turns, with fan-outs where one turn releases a dozen siblings and a later turn waits for all of them |
+# | Tokens | prompts outnumber outputs by about 11:1, and many turns generate only a few dozen tokens |
+# | Time | decode still dominates, because an output token costs roughly 200× a prompt token |
+# | Reuse | about 60% of the prompt tokens have been computed before, and how the agent is designed is what decides that number |
+# | Prefix caching | removed 60% of the prefill work and 6× of the TTFT, but only about a quarter of the median task time |
+# | What a task waits for | its own chain: queue, prefill, decode and tool time, turn after turn |
+# | What to measure | task completion time, not per-request TTFT |
 #
-# ## What is realistic here, and what is not
-#
-# The traces are real; the deployment around them is a lab. Before quoting any
-# number from this lecture:
-#
-# | | In this lecture | In a production agent deployment |
-# |---|---|---|
-# | Models | one 32B model serves every role | at least two, chosen per role, on separately sized pools |
-# | Task mix | 24 (or 100) tasks that fit the course's context limit | the same system also runs tasks with 100k-token requests, which are the expensive ones |
-# | Tool latency | replayed from a benchmark that re-ran each tool offline | live, variable, and occasionally much slower than the recording |
-# | Agent overhead | zero: a turn is released the instant its dependency and tool finish | parsing, orchestration and retries add their own time between turns |
-# | Arrivals | Poisson over recorded tasks | diurnal, bursty, and correlated with the tasks people are running |
-# | KV cache | GPU-resident, per replica, no offload | tiered and often cluster-wide (lecture 5) |
-# | Failure | none; every recorded task is replayed as it happened | agents retry, loop, and abandon tasks, which changes the shape of the load |
-#
-# What does carry over is the structure of the workload — dependent turns, fan-out
-# bursts, a prompt that grows by appending, tool gaps, and a task-level metric that
-# behaves very differently from a request-level one.
+# What a cluster should do when many such tasks arrive at once — which replica
+# takes each turn, and which waiting turn a replica serves next — is
+# {doc}`07-scheduling-agentic-workloads`.
 #
 # ## Exercises
 #
@@ -522,21 +419,17 @@ pd.DataFrame(sched).T.round(2)
 #    Sweep 512, 2048, 4096 on the single-replica run and report TTFT and task time.
 #    Why does a chunk size that was bad for chat (lecture 3) look better here, and
 #    does prefix caching being on change the answer?
-# 3. **Disaggregate.** Build a PD cluster with lecture 4's `pd_cluster` helper
-#    (four replicas, splits 1:3, 2:2, 3:1) and run the busy trace. Which split wins,
-#    and does prefix caching change the answer? (Hint: what is the prefill pool's
-#    hit rate if a session's turns go to different prefill replicas?)
-# 4. **The cost of a fan-out.** In the single-session timeline, measure how long
+# 3. **The cost of a fan-out.** In the single-session timeline, measure how long
 #    the join turn (`dep` with twelve entries) waits after the *first* of its
 #    dependencies finishes. How much of that is queueing behind its own siblings,
 #    and what would a scheduler have to know to shorten it?
-# 5. **Size the two pools.** Using the `model` column, work out how much GPU time
+# 4. **Size the two pools.** Using the `model` column, work out how much GPU time
 #    each of the two models would need for this workload: count prompt and output
 #    tokens per model and price them at the ~0.25 ms and ~45 ms per token measured
 #    above. If you had eight GPUs, how would you split them, and which pool would
 #    saturate first? Then check your reasoning against what `lsg.gaia_sessions`
 #    shows about which roles sit on the critical path.
-# 6. **A different sample.** Rerun the characterisation with `seed=1` and
+# 5. **A different sample.** Rerun the characterisation with `seed=1` and
 #    `num_sessions=48`. How stable are the prompt:output ratio and the ideal hit
 #    rate? What does that say about tuning a system to one trace?
 # :::
@@ -570,18 +463,6 @@ lsg.quiz([
                  "The throughput of the replica"],
      "answer": 1,
      "explain": "A join waits for its slowest dependency, which is why tail latency within a sibling group matters more than averages."},
-    {"q": "Why does sticky routing give the best median task time but a much worse tail in the four-replica run?",
-     "options": ["Sticky routing disables prefix caching for new sessions",
-                 "It keeps a session on the replica that holds its prefix even when that replica is temporarily overloaded",
-                 "It sends every session to replica 0"],
-     "answer": 1,
-     "explain": "Affinity maximises hits but gives up the freedom to move work away from a busy replica, e.g. one that has just received a fan-out burst."},
-    {"q": "Shortest-job-first improved the median task time but left the total execution time of the whole run unchanged. What does that tell you?",
-     "options": ["The scheduler is broken",
-                 "Queue order redistributes waiting time between tasks; it does not create GPU capacity",
-                 "The workload was not actually loaded"],
-     "answer": 1,
-     "explain": "Total work is fixed. Scheduling decides who waits; only more hardware, less work (caching), or cheaper work shortens the run itself."},
     {"q": "A session waits 22 s for a tool. What is the dilemma for the replica holding its KV cache?",
      "options": ["Whether to keep the blocks (idle memory) or evict them (a full re-prefill when the turn returns)",
                  "Whether to decode ahead speculatively",

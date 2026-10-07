@@ -343,7 +343,7 @@ pd.DataFrame({f"{n:,}-token prompt": {name: f"{1e3 * n * kv_per_token / bw:.0f} 
 # directly to the time before the second token, and it always consumes network
 # bandwidth that the cluster may need for other traffic.
 #
-# ## Summary: chunked prefill or disaggregation?
+# ## Summary
 #
 # | | Chunked prefill (lecture 3) | PD disaggregation |
 # |---|---|---|
