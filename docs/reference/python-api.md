@@ -105,7 +105,9 @@ containing a request longer than `max_tokens` are skipped.
 
 Renders clickable multiple-choice questions with instant feedback. Each question
 is `{"q": str, "options": [str, ...], "answer": int, "explain": str}`, where
-`answer` is the 0-based index of the correct option. See {doc}`authoring`.
+`answer` is the 0-based index of the correct option. See
+[`docs/reference/authoring.md`](https://github.com/kwmaeng91/studying-llm-systems-without-gpus/blob/main/docs/reference/authoring.md)
+in the repository for how to add a lecture.
 
 ## `catalog() → DataFrame`
 

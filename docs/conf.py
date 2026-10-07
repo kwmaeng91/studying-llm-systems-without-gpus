@@ -31,7 +31,10 @@ myst_enable_extensions = ["colon_fence", "dollarmath", "deflist", "attrs_inline"
 myst_heading_anchors = 3
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**.ipynb_checkpoints"]
+# reference/authoring.md is for whoever writes a lecture, not for readers of the
+# site: it stays in the repository (and renders on GitHub) but is not built.
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**.ipynb_checkpoints",
+                    "reference/authoring.md"]
 
 html_theme = "sphinx_rtd_theme"
 html_title = project

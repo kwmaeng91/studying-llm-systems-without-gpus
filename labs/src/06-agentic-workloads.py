@@ -20,10 +20,10 @@
 #
 # Three things differ from what we saw before. First, the requests are
 # *dependent*: turn *k+1* may not be able to start until turn *k* has finished and its tool
-# call has returned. The prompts are long and repetitive, because each turn resends the whole
-# conversation plus the new tool output, which is lecture 5's problem in its most
-# extreme form. And the thing a user waits for is the task, not the request: a p99
-# TTFT of 200 ms says little if the task takes six minutes.
+# call has returned. Second, the prompts are long and repetitive, because each turn
+# resends the whole conversation plus the new tool output, which is lecture 5's
+# problem in its most extreme form. Third, the thing a user waits for is the task,
+# not the request: a p99 TTFT of 200 ms says little if the task takes six minutes.
 #
 # The lecture works from recorded traces rather than a synthetic workload. They come
 # from [GAIATrace](https://github.com/psu-paws/Vidur-Agent)
@@ -86,10 +86,10 @@ print(f"{sessions.session.nunique()} sessions, {len(sessions)} LLM requests")
 sessions.drop(columns="token_ids").head(8)
 
 # %% [markdown]
-# The table gives a peek on how OWL solves a particular question.
-# Each row is one request to the model, which does the planning, coordination, web search, and etc.
+# The table gives a peek at how OWL solves a particular question.
+# Each row is one request to the model, which does the planning, coordination, web search, and so on.
 # Note that two models are used here: gpt-4o for tasks that do not require heavy thinking, and gpt-oss-120b for
-# tasks that require thinking. This is just how the authors of GAIATrace (which is me and my students!) decided to do it.
+# tasks that require thinking. This is just how the authors of GAIATrace (that's me and my students!) decided to do it.
 #
 # - `session` / `turn`: which task, and the position in it.
 # - `role`: which agent inside the system issued it. OWL is a *multi-agent* system:
@@ -182,8 +182,8 @@ ax.legend(fontsize=8, ncol=3, loc="upper left")
 fig.tight_layout()
 
 # %% [markdown]
-# Each dot represents a sub-agent (plan, coordinate, web search, ...), and when the agent
-# use a tool, the bar shows the tool execution time.
+# Each dot represents a request from a sub-agent (plan, coordinate, web search, ...),
+# and when the agent uses a tool, the bar shows the tool execution time.
 # The prompt length (y-axis of each dot) grows inside a stretch of turns and then drops: each time the
 # coordinator hands a subtask to a fresh worker, that worker starts a new
 # conversation with its own system prompt. Within a worker's stretch, every turn
@@ -467,7 +467,7 @@ pd.DataFrame(routing).T.round(2)
 # worse at p99 than plain round-robin. Affinity means staying on a replica even
 # when it has just been handed a twelve-way fan-out, and the siblings of that burst
 # pay for it. Which side of that trade to take depends on whether the deployment is
-# judged on the median or the tail; lecture 8 looks at routing on its own.
+# judged on the median or the tail.
 #
 # ### Scheduling: whose turn goes first
 #

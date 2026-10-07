@@ -44,17 +44,7 @@ The website and lecture materials were built with the help of Claude Code. I’v
 * - 6
   - {doc}`lectures/06-agentic-workloads`
   - real agent traces: sessions, tool calls, task-level latency
-* - 7
-  - {doc}`lectures/07-hardware-and-parallelism`
-  - GPU type, tensor parallelism (outline)
-* - 8
-  - {doc}`lectures/08-cluster-routing`
-  - replicas and routing (outline)
 ```
-
-:::{warning}
-Lectures marked **[TEMP]** are placeholder drafts and will be replaced.
-:::
 
 ```{toctree}
 :hidden:
@@ -81,5 +71,4 @@ lectures/*
 reference/python-api
 reference/simulator-knobs
 reference/how-the-simulator-works
-reference/authoring
 ```
