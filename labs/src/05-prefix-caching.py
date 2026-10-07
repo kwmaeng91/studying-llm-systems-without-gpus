@@ -159,8 +159,7 @@
 #   conversation and across users who share a long preamble.
 # - Explain what destroys a hit: variable text placed before shared text, and
 #   eviction under memory pressure.
-# - Lay out a prompt so that it is cache-friendly, and say what cross-user sharing
-#   costs as well as what it buys.
+# - Lay out a prompt so that it is cache-friendly.
 # - Say where cached blocks actually live in a production deployment.
 # :::
 
@@ -513,34 +512,6 @@ fig.tight_layout()
 # the session returns. This field still has a lot of interesting research questions.
 
 # %% [markdown]
-# ## What prefix caching does not do
-#
-# Only prompt tokens can be reused. The answer still has to be generated one token
-# at a time at the memory-bound speed of lecture 1, so a workload with short prompts
-# and long answers gains very little from prefix caching, however repetitive its
-# prompts are.
-#
-# Cached blocks also cost memory. A block kept for a prefix nobody comes back to is
-# a block the running requests cannot use, so a replica that caches too eagerly
-# ends up with smaller batches and less throughput. Offloading to CPU or SSD moves
-# that problem rather than removing it: something still has to decide which
-# prefixes are worth keeping and where to put them.
-#
-# Skipping most of the prefill work also changes what the replica spends its time
-# on. Its steps now carry fewer prefill tokens, so it is more decode-dominated than
-# the same deployment without caching, and the chunk size (lecture 3) and
-# prefill:decode split (lecture 4) that were right before may not be right after.
-#
-# Finally, sharing blocks between users has a consequence beyond throughput. The
-# preamble experiment worked because two strangers' requests touched the same
-# blocks, and a hit is faster than a miss in a way anyone can measure: from its own
-# TTFT, a request can tell whether the prefix it sent was already cached, and
-# therefore whether someone else sent the same text recently. This is a timing side
-# channel. It matters when the shared opening is not public — a tenant's
-# confidential system prompt, or a document pasted above a question — and the usual
-# answer is to give each tenant its own cache namespace and share only text that
-# has been declared public, at some cost in hit rate.
-#
 # ## Summary
 #
 # | | Effect |
