@@ -157,12 +157,11 @@
 #   on a *prefix*.
 # - Measure the effect of prefix caching on prefill work and TTFT, both within one
 #   conversation and across users who share a long preamble.
-# - Explain the two things that destroy a hit: eviction under memory pressure, and
-#   a request landing on a replica that does not hold the prefix.
+# - Explain what destroys a hit: variable text placed before shared text, and
+#   eviction under memory pressure.
 # - Lay out a prompt so that it is cache-friendly, and say what cross-user sharing
 #   costs as well as what it buys.
-# - Say where cached blocks actually live in a production deployment, and where
-#   these labs simplify.
+# - Say where cached blocks actually live in a production deployment.
 # :::
 
 # %% [markdown]
@@ -308,24 +307,19 @@ def toks(n):
     return rng.integers(10, 150_000, n).tolist()
 
 def chat_trace(n_sessions=24, n_turns=6, question=200, answer=200, preamble=0,
-               preamble_first=True, think=5.0, long_answer=None, long_every=4, name=None):
-    """Multi-turn conversations, optionally sharing a `preamble`-token system prompt.
-
-    With `long_answer`, every `long_every`-th session asks for that many output
-    tokens instead of `answer`, so the sessions do not all cost the same.
-    """
+               preamble_first=True, think=5.0, name=None):
+    """Multi-turn conversations, optionally sharing a `preamble`-token system prompt."""
     shared = toks(preamble)
     rows = []
     for s in range(n_sessions):
         context = []
-        reply_len = long_answer if (long_answer and s % long_every == 0) else answer
         for t in range(n_turns):
             user = toks(question)
             # Turn 0 starts the conversation; later turns append to the context.
             context = (shared + user if preamble_first else user + shared) if t == 0 \
                       else context + user
-            reply = toks(reply_len)
-            rows.append(dict(prefill=len(context), decode=reply_len, ids=context + reply,
+            reply = toks(answer)
+            rows.append(dict(prefill=len(context), decode=answer, ids=context + reply,
                              session=s, turn=t, dep=[] if t == 0 else [t - 1],
                              think=0.0 if t == 0 else think, rid=1000 * s + t))
             context = context + reply    # the next turn sees this answer too
@@ -519,195 +513,6 @@ fig.tight_layout()
 # the session returns. This field still has a lot of interesting research questions.
 
 # %% [markdown]
-# ## Prefix-cache-aware routing
-#
-# When each replica (e.g., a group of TP-2 GPU servers running inference) keeps its cached blocks to itself,
-# requests can benefit from prefix caching only if the replica they are allocated to holds the prefix blocks that they need.
-# If turn 2 of a conversation is handled by a
-# different replica than turn 1, the prefix is on the wrong GPU and the request is a
-# full miss.
-# To make sure that requests are mostly routed to the replica that holds useful prefix blocks for them,
-# real clusters implement KV-aware routers. NVIDIA's
-# [Dynamo](https://github.com/ai-dynamo/dynamo) has a **KV-aware router**, scoring each replica by how much of
-# the incoming prompt it already holds and weighing that against how loaded it is;
-# the `dynamo_kv` policy below is modelled on exactly that scoring. Mooncake
-# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079))
-# implements a similar KV-aware scheduling policy, but it can additionally fetch blocks from a remote node
-# when doing so is worth it, which gives it a larger decision space.
-#
-# For our experiment below, let's simply assume that KV blocks cannot move around, and it will be a full miss if
-# requests are routed to a wrong replica.
-#
-# The conversations we have used so far are too well behaved, with all the users asking the exact same length questions
-# and getting the same length answer. Here, we introduce a messier workload.
-# There are 160 users. Every user shares the same 4,096-token system prompt,
-# followed by a short conversation of three turns.
-# The new part is that the users are no longer equally expensive: one user in four
-# asks something that takes a 2,000-token answer, while the other three get 200
-# tokens. That is enough to make the replicas unequal too. A replica that happens to
-# be decoding three long answers at the same time is busy for a while; a replica
-# that only has short ones is free again in a second.
-#
-# This gives a router two things to think about at once, and they do not always
-# agree.
-#
-# The first is the cache. A replica is a good place to send a request if it already
-# holds the tokens of that request. There are now two ways that can happen. The
-# replica may hold *this user's* earlier turns, which is the kind of reuse we have
-# been measuring so far. Or it may simply hold the 4,096-token system prompt, which
-# every user sends and which therefore ends up on every replica within the first few
-# requests. The second kind of hit is much easier to come by, and it means that
-# moving a user to a different replica is no longer a disaster: the new replica
-# still has 4,096 of the 4,200 to 4,800 tokens in the prompt.
-#
-# The second is the load. If we send a request to a replica that is already working
-# on a long answer for somebody else, it waits.
-#
-# Let's build that workload.
-
-# %%
-shared_app, shared_app_df = chat_trace(n_sessions=160, n_turns=3, question=100, answer=200,
-                                       preamble=4096, think=1.0, long_answer=2000,
-                                       long_every=4, name="shared_app")
-
-# %% [markdown]
-# We send it to four replicas, with three routing policies.
-#
-# - `round_robin` sends each request to the next replica in turn. It does not look
-#   at who sent the request, at what the replica holds, or at how busy it is. Every
-#   replica gets the same number of requests, but a user's second turn almost always
-#   lands somewhere other than the first, so its history has to be prefilled again.
-# - `sticky_lor` picks a replica for each *user*, once. The user's first request goes
-#   to the replica with the fewest outstanding requests, and every later turn from
-#   that user follows it there. This gets the most hits of the three, but the choice
-#   is made at the beginning and never revisited.
-# - `dynamo_kv` decides separately for every request. It gives each replica a score —
-#   the number of prompt blocks that replica would still have to compute, plus the
-#   number of KV blocks its running requests are currently holding — and sends the
-#   request to the lowest score. In other words it prefers the replica that already
-#   has your tokens, but it will send you elsewhere if that replica is busy right
-#   now.
-#
-# We run each policy twice, because routing only matters when the replicas are
-# actually short of something.
-#
-# The first run leaves the scheduler at its default limit of 128 concurrent requests
-# per replica. Four replicas can then work on 512 requests at once, which is more
-# than this workload ever has in flight. Nothing waits, and an uneven split of users
-# across replicas costs nothing.
-#
-# The second run limits each replica to 32 concurrent requests. A real replica runs
-# into a limit like this when its KV cache fills up (lecture 2): beyond some number
-# of simultaneous requests there is no memory for another one, and the rest wait in
-# a queue. This is the regime where the router's choice can be wrong.
-#
-# :::{note}
-# These prompts are longer than the ones earlier in the lecture, and a batch of them
-# can exceed the context range the course's runtime predictor is fitted for, so
-# these runs pass `max_tokens=65536`. The first one fits a wider predictor grid,
-# which takes about a minute. Lecture 6 reuses the same grid.
-# :::
-
-# %%
-def route(policy, cap):
-    r = run(shared_app, shared_app_df, qps=16.0, num_replicas=4, prefix_caching=True,
-            global_scheduler=policy, batch_size_cap=cap, max_tokens=65536)
-    return {"KV cache hit rate": r.cache_hit_rate,
-            **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)", "E2E p50 (s)",
-                           "total execution time (s)"]]}
-
-POLICIES = ("round_robin", "sticky_lor", "dynamo_kv")
-pd.DataFrame({p: route(p, 128) for p in POLICIES}).T.round(2)
-
-# %% [markdown]
-# With that much room, the simplest cache-aware answer is the best one.
-# `sticky_lor` has the highest hit rate (0.97), the lowest TTFT at both the median
-# and the tail, and it gets through the whole workload in the least time. Nothing is
-# ever short of capacity, so there is no reason to think about load at all, and the
-# only thing left to optimise is the cache — which pinning each user to one replica
-# does perfectly. `dynamo_kv` gives away a little of the hit rate to balance a load
-# that did not need balancing, and `round_robin` gives away more.
-#
-# Now the same three policies, with each replica limited to 32 concurrent requests.
-
-# %%
-pd.DataFrame({p: route(p, 32) for p in POLICIES}).T.round(2)
-
-# %% [markdown]
-# Every number has moved, and in different directions. Taking the policies one at a
-# time:
-#
-# **`round_robin`** has the same hit rate as before, 0.87, because its routing does
-# not depend on how loaded anything is. What changed is what that costs. The
-# prefills it repeats are no longer free work done in spare capacity; they occupy
-# replicas that other requests are now waiting for. The clearest sign is the last
-# column: the cluster needs 366 seconds to finish the same 160 users, about a third
-# longer than the other two policies, and its tail TTFT is a minute and a half.
-# Wasted prefill turns into lost capacity as soon as capacity is scarce.
-#
-# **`sticky_lor`** keeps its 0.97 hit rate and still finishes quickly, but its median
-# TTFT is now 1.1 seconds — thirteen times worse than the same policy had with
-# headroom. The reason is not that it chose badly: it spread the users evenly, and
-# the expensive users ended up spread evenly too. The reason is that it chose
-# *once*. A user is attached to one replica for the rest of the conversation, so
-# when that replica happens to be in the middle of a couple of long answers, the
-# user waits, even though another replica is free at that moment and holds the same
-# system prompt.
-#
-# **`dynamo_kv`** ends up at 0.92 — it loses a few hits whenever it moves a user
-# away from their own history — and in exchange it never leaves a request queued
-# behind a replica that is busy at that instant. It has the best median TTFT, 164 ms,
-# and the best median end-to-end time, and it finishes as fast as `sticky_lor`. The
-# shared system prompt is what makes this trade cheap: a moved user still finds most
-# of its prompt on the new replica.
-#
-# No policy wins on everything. `sticky_lor` still has much the best tail, and
-# `dynamo_kv`'s is the second worst. That is worth understanding, because it comes
-# straight out of the score: `dynamo_kv` measures a replica's load as the KV blocks
-# its *running* requests hold, which is not the same as the length of its queue. A
-# replica that is already at its limit of 32 concurrent requests, all of them small,
-# still looks cheap, so the router keeps sending to it and the queue behind it grows.
-# The requests caught in that queue are the tail.
-#
-# ## Tuning the trade-off
-#
-# How much a KV-aware router should care about the cache, relative to load, is a
-# knob rather than a law. In the score above, the cache term is multiplied by
-# `overlap_score_weight`, which Dynamo also exposes. The default is 1. Larger values
-# mean "prefer the replica that has my tokens, even if it is busy"; smaller values
-# mean "just balance the load".
-#
-# It is worth knowing roughly how big the two terms are here before turning the
-# knob. The cache term is at most about 4,800/16 = 300 blocks, which is one whole
-# prompt, and usually far less because of the shared system prompt. The load term is
-# the KV held by up to 32 running requests, which runs into the thousands of blocks.
-# So at weight 1 this router is mostly balancing load and using the cache to break
-# ties.
-
-# %%
-weights = {}
-for w in (0.25, 1.0, 4.0):
-    r = run(shared_app, shared_app_df, qps=16.0, num_replicas=4, prefix_caching=True,
-            global_scheduler="dynamo_kv", batch_size_cap=32, max_tokens=65536,
-            extra={"--dynamo_style_k_v_global_scheduler_config_overlap_score_weight": w})
-    weights[w] = {"KV cache hit rate": r.cache_hit_rate,
-                  **r.summary()[["TTFT p50 (ms)", "E2E p50 (s)", "total execution time (s)"]]}
-pd.DataFrame(weights).T.rename_axis("overlap_score_weight").round(2)
-
-# %% [markdown]
-# At 0.25 the cache barely counts, the hit rate drops towards round-robin's, and
-# latency gets worse. At 4 the cache term starts to outweigh the load term, so the
-# router behaves like a sticky one that has stopped watching how busy anything is:
-# the hit rate does not improve, and the median end-to-end time more than doubles,
-# from 9.8 to 26.2 seconds. The default of 1 happens to be the balanced point for
-# this workload. For a workload with shorter prompts, or more replicas, or less
-# shared text, the balanced point would sit somewhere else — which is the honest
-# summary of KV-aware routing: it is a cost function with a weight in it, and the
-# weight depends on your traffic.
-#
-# Routing on its own is the subject of {doc}`08-cluster-routing`.
-
-# %% [markdown]
 # ## What prefix caching does not do
 #
 # Only prompt tokens can be reused. The answer still has to be generated one token
@@ -736,26 +541,6 @@ pd.DataFrame(weights).T.rename_axis("overlap_score_weight").round(2)
 # answer is to give each tenant its own cache namespace and share only text that
 # has been declared public, at some cost in hit rate.
 #
-# ## What is realistic here, and what is not
-#
-# The labs in this lecture are small on purpose, and a few of their simplifications
-# would change the numbers in a real deployment. Worth having in mind before you
-# quote any of them:
-#
-# | | In these labs | In a production deployment |
-# |---|---|---|
-# | Block size | 16 tokens | 16 in vLLM, 32 in TensorRT-LLM, token-granular in SGLang |
-# | Matching | exact longest prefix, chained block hashes | the same in every major engine; research systems also reuse non-prefix segments |
-# | Where blocks live | one GPU pool per replica, nothing below it | HBM, then CPU DRAM, then SSD, sometimes pooled across the whole cluster |
-# | Losing a block | evicted and gone, so a miss costs a full re-prefill | usually demoted a tier, so a miss costs a transfer; hosted APIs also expire entries on a timer |
-# | Sharing | anything with a matching prefix, including across users | the same by default, isolated per tenant where that matters |
-# | Conversations | fixed-length turns, strictly append-only | variable, edited, regenerated, trimmed to a context limit |
-# | Prompts | random token ids, so sharing is exactly what we arrange | real text, where a stray timestamp decides everything |
-#
-# What does carry over is the mechanism and the direction of every effect: which
-# tokens can be reused, what destroys a hit, and which knobs trade one against
-# another.
-#
 # ## Summary
 #
 # | | Effect |
@@ -765,8 +550,8 @@ pd.DataFrame(weights).T.rename_axis("overlap_score_weight").round(2)
 # | Who shares | any two requests starting with the same tokens, whether or not they belong to the same user |
 # | Effect on TTFT | the computed part of the prompt stops growing with the conversation |
 # | Effect on TPOT / decode | indirect only (fewer and shorter prefill chunks per step) |
-# | Killed by | variable text placed before shared text; eviction under memory pressure; routing to another replica |
-# | Interacts with | router policy (affinity vs. load), chunk size, KV-cache capacity |
+# | Killed by | variable text placed before shared text; eviction under memory pressure |
+# | Interacts with | chunk size, KV-cache capacity, and how much memory the running requests need |
 #
 # ## Exercises
 #
@@ -833,12 +618,6 @@ lsg.quiz([
                  "Prefix caching turns itself off below a memory threshold"],
      "answer": 1,
      "explain": "Cached prefixes and live requests share one pool. Under pressure the least recently used cached blocks are evicted, and the next turn has to recompute them."},
-    {"q": "Why does round-robin routing lower the KV cache hit rate in a multi-replica cluster?",
-     "options": ["It overloads one replica",
-                 "Each replica has its own KV cache, so a turn routed elsewhere cannot see the prefix its session built",
-                 "It disables prefix caching"],
-     "answer": 1,
-     "explain": "With a cache per replica, a session has to come back to the GPU that holds its history, which is what affinity-aware routing arranges. Clusters with a shared KV store (Mooncake) can instead fetch the prefix across the network."},
     {"q": "Why do production systems keep evicted KV blocks in CPU memory or on SSD instead of dropping them?",
      "options": ["To survive a GPU crash",
                  "Because fetching a prefix back is roughly an order of magnitude cheaper than prefilling it again",

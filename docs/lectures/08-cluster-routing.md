@@ -42,9 +42,9 @@ for policy in ["round_robin", "lor", "lop"]:
 ```
 
 :::{note}
-Lectures {doc}`05-prefix-caching` and {doc}`06-agentic-workloads` already measured
-one consequence of routing — a request only hits the prefix cache on the replica
-that holds its prefix, so `sticky_lor` and `dynamo_kv` beat `round_robin` on hit
-rate while doing worse at the tail. This lecture takes the policies on their own
-terms.
+{doc}`06-agentic-workloads` already measured one consequence of routing on a real
+agent trace: a request only hits the prefix cache (see {doc}`05-prefix-caching`)
+on the replica that holds its prefix, so `sticky_lor` and `dynamo_kv` beat
+`round_robin` on hit rate while doing worse at the tail. This lecture takes the
+policies on their own terms.
 :::

@@ -430,8 +430,9 @@ print(f"{len(busy_sessions)} requests, "
 # %% [markdown]
 # ### Routing: cache affinity against load balance
 #
-# The cache is per replica (lecture 5), and an agent session is a long chain of
-# requests that all want the same prefix, so the router decides the hit rate. This
+# Each replica keeps its own KV cache, so a request only hits what the replica it
+# lands on happens to hold. An agent session is a long chain of requests that all
+# want the same prefix, so the router decides the hit rate. This
 # is why production agent stacks care about routing at all: NVIDIA's
 # [Dynamo](https://github.com/ai-dynamo/dynamo) scores replicas by the prompt
 # tokens they would still have to compute as well as by load, and Mooncake routes
