@@ -94,7 +94,7 @@ print(f"{len(busy_sessions)} requests, "
 # because a task is a chain. However many tasks are in flight, each of them only
 # has a turn or two running at any moment, and the rest of its time is spent
 # waiting for a tool or for its own previous turn. The cluster is throttled by the
-# workload's dependencies rather than by us.
+# workload's dependencies rather than by the rate at which we hand it work.
 #
 # Let's see how much it matters, from one new task every four seconds to four new
 # tasks a second — a 16× range.
@@ -105,9 +105,9 @@ arrival = {q: run(qps=q, num_replicas=4, global_scheduler="sticky_lor")
 pd.DataFrame(arrival).T.rename_axis("new tasks per second").round(2)
 
 # %% [markdown]
-# Sixteen times the arrival rate buys a 12% worse median task, and the time to get
-# through all 100 tasks barely moves. Compare that with lecture 2, where doubling
-# the load past the knee sent TTFT up by orders of magnitude.
+# Sixteen times the arrival rate costs 12% of the median task time, and the time to
+# get through all 100 tasks barely moves. Compare that with lecture 2, where
+# crossing the knee was enough to flatten throughput and send TTFT climbing.
 #
 # This is worth remembering when sizing an agent deployment: the useful unit of
 # load is *concurrent tasks*, not requests per second, and the way to overload this
@@ -133,7 +133,7 @@ carving = {f"{n} x TP{tp}": run(kv=True, tensor_parallel=tp, num_replicas=n, qps
 pd.DataFrame(carving).T.round(2)
 
 # %% [markdown]
-# Two of four wins here, and the two ends lose for opposite reasons. Four narrow
+# `2 x TP4` wins here, and the two ends lose for opposite reasons. Four narrow
 # replicas spread the cache thinnest (the lowest hit rate of the three) and give
 # the worst tail TTFT, because a session is stuck with whichever replica it was
 # pinned to. One wide replica has the best hit rate — every prefix is in the one
@@ -184,8 +184,8 @@ pd.DataFrame(split).T.round(2)
 
 # %% [markdown]
 # Disaggregation does well here, and PD 3:1 — three quarters of the cluster
-# prefilling — does best: the same median task time as the chunked cluster with a
-# tail TTFT about two and a half times lower. That split looks lopsided until you
+# prefilling — does best: a slightly better median task time than the chunked
+# cluster, with a tail TTFT about two and a half times lower. That split looks lopsided until you
 # remember what the trace is made of. Prompts are enormous, answers are short, and
 # the bursts that hurt are bursts of *prefill*; a large prefill pool absorbs a
 # twelve-way fan-out without any of it landing on a GPU that is streaming someone
