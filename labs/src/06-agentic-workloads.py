@@ -376,35 +376,24 @@ breakdown = pd.Series({
 breakdown.round(1)
 
 # %% [markdown]
-# Three things to read off the picture. First, the task is a chain: for most of its
-# life exactly one of its turns is running, so a GPU twice as fast would shorten
-# each bar without removing the serialisation between them. Second, the blue
-# (decode) parts dominate — summed over the turns, decode takes about 6 minutes
-# against 37 s of actual prefill, with tool calls adding about a minute — even
-# though every prompt is 10–50× longer than the answer it produces. Third, the
-# twelve-way fan-out is the one place where the serving system controls the task's
-# progress: a dozen bars start together, the replica prefills them more or less one
-# after another, and the turn that joins them waits for the last.
-#
-# The sums in the table exceed the task's wall-clock time because of that fan-out:
-# twelve turns run at once, and most of the 2 minutes of queueing is those siblings
-# waiting for each other.
+# First, you can see that the task is executed as a chain of queries, mostly sequential but
+# sometimes parallel. Many agentic systems are mostly sequential, while people are exploring various
+# ways to incorporate more parallel structures [TODO: Cite LATS paper].
+# Second, you can see that the blue (decode) parts dominate. This is because prefix cache hit
+# is high, and currently there is no other contention to the GPU.
+# With less prefix cache hit and many other requests in the same GPU, the bars will look different
+# (because prefill cannot be batched as nicely as decode, as we learned in lecture 2).
+# Again, the twelve parallel tasks in the middle are OWL trying to summarize a very long web-scraped
+# texts while not significantly increasing the context length. 
 #
 # ## Summary
 #
 # | | What we saw |
 # |---|---|
-# | Shape of a task | dozens of dependent turns, with fan-outs where one turn releases a dozen siblings and a later turn waits for all of them |
-# | Tokens | prompts outnumber outputs by about 11:1, and many turns generate only a few dozen tokens |
-# | Time | decode still dominates, because an output token costs roughly 200× a prompt token |
-# | Reuse | about 60% of the prompt tokens have been computed before, and how the agent is designed is what decides that number |
-# | Prefix caching | removed 60% of the prefill work and 6× of the TTFT, but only about a quarter of the median task time |
-# | What a task waits for | its own chain: queue, prefill, decode and tool time, turn after turn |
-# | What to measure | task completion time, not per-request TTFT |
-#
-# What a cluster should do when many such tasks arrive at once — which replica
-# takes each turn, and which waiting turn a replica serves next — is
-# {doc}`07-scheduling-agentic-workloads`.
+# | Shape of a task | an agentic task is mostly a series of sequential requests but sometimes parallel |
+# | Tokens | usually larger input tokens than output tokens, but depends on the agent's role |
+# | Time | decode still dominates (especially when the batch size is low and prefix cache hit rate is high) |
+# | Prefix caching | hit rate is around 60% and improves 6× of the TTFT, but only about a quarter of the median task time |
 #
 # ## Exercises
 #
@@ -458,11 +447,6 @@ lsg.quiz([
                  "Task time is dominated by queueing"],
      "answer": 1,
      "explain": "The task's critical path is a chain of turns, each spending most of its time generating tokens or waiting for a tool."},
-    {"q": "Twelve requests are released at once by a fan-out, and a later turn depends on all twelve. Which metric predicts the task's progress?",
-     "options": ["The median TTFT of the twelve", "The maximum completion time among the twelve",
-                 "The throughput of the replica"],
-     "answer": 1,
-     "explain": "A join waits for its slowest dependency, which is why tail latency within a sibling group matters more than averages."},
     {"q": "A session waits 22 s for a tool. What is the dilemma for the replica holding its KV cache?",
      "options": ["Whether to keep the blocks (idle memory) or evict them (a full re-prefill when the turn returns)",
                  "Whether to decode ahead speculatively",
@@ -475,10 +459,4 @@ lsg.quiz([
                  "The traces were recorded with caching disabled"],
      "answer": 1,
      "explain": "Reuse follows the agent's structure. Within a worker's stretch of turns almost everything repeats; across workers and across the chunks of a fan-out, much less does."},
-    {"q": "OWL served the reading-and-classifying roles with one model and the reasoning roles with another. What does this lecture do instead, and why does it matter?",
-     "options": ["It uses the same two models, so nothing changes",
-                 "It serves every role with one 32B model, so the two very different prompt:output shapes are merged into one pool that a real deployment would size separately",
-                 "It drops the roles served by the smaller model"],
-     "answer": 1,
-     "explain": "In the recording the smaller model sees 33 prompt tokens per output token and the larger one about 7. Those are different serving problems, and lecture 4's replica groups are how you would give each its own pool."},
 ])
