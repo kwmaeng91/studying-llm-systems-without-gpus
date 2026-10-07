@@ -125,7 +125,7 @@ You will read and lightly edit Python in Jupyter notebooks. If you are not famil
 
 ## Transformers and LLMs
 
-You should have a rough understanding of how transformers work. If you’re not familiar with them, here are some of my favorite resources (these are my personal favorites---not AI-generated!).
+You should have a rough understanding of how transformers work. If you’re not familiar with them, here are some of my favorite resources (these are my personal favorites, not AI-generated!).
 
 - [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) (Jay Alammar): this is one of my favorites, but note that it explains how the *original* transformer architecture worked. Modern-day transformers (*decoder-only* transformers) look different, as shown in the next resource below.
 - [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/) (Jay Alammar): decoder-only transformers and token-by-token generation.
