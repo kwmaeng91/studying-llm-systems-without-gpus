@@ -541,12 +541,29 @@ fig.tight_layout()
 # The conversations we have used so far are too well behaved, with all the users asking the exact same length questions
 # and getting the same length answer. Here, we introduce a messier workload.
 # There are 160 users. Every user shares the same 4,096-token system prompt,
-# followed by a short conversation of three turns.  
-# TODO: REWRITE FROM HERE: and an uneven mix, in
-# which one conversation in four asks for a 2,000-token answer while the rest get
-# 200. A replica can now be useful to a session in two different ways — it may hold
-# that session's history, or merely the shared preamble — and the long answers mean
-# it matters *where* the expensive sessions land.
+# followed by a short conversation of three turns.
+# The new part is that the users are no longer equally expensive: one user in four
+# asks something that takes a 2,000-token answer, while the other three get 200
+# tokens. That is enough to make the replicas unequal too. A replica that happens to
+# be decoding three long answers at the same time is busy for a while; a replica
+# that only has short ones is free again in a second.
+#
+# This gives a router two things to think about at once, and they do not always
+# agree.
+#
+# The first is the cache. A replica is a good place to send a request if it already
+# holds the tokens of that request. There are now two ways that can happen. The
+# replica may hold *this user's* earlier turns, which is the kind of reuse we have
+# been measuring so far. Or it may simply hold the 4,096-token system prompt, which
+# every user sends and which therefore ends up on every replica within the first few
+# requests. The second kind of hit is much easier to come by, and it means that
+# moving a user to a different replica is no longer a disaster: the new replica
+# still has 4,096 of the 4,200 to 4,800 tokens in the prompt.
+#
+# The second is the load. If we send a request to a replica that is already working
+# on a long answer for somebody else, it waits.
+#
+# Let's build that workload.
 
 # %%
 shared_app, shared_app_df = chat_trace(n_sessions=160, n_turns=3, question=100, answer=200,
@@ -554,62 +571,118 @@ shared_app, shared_app_df = chat_trace(n_sessions=160, n_turns=3, question=100, 
                                        long_every=4, name="shared_app")
 
 # %% [markdown]
-# We run it on four replicas with three policies: `round_robin` (ignore history,
-# spread the load), `sticky_lor` (pin each session, on its first request, to the
-# least-loaded replica and send every later turn of it there), and `dynamo_kv` (a
-# Dynamo-style router that scores each replica by the prompt tokens it would still
-# have to compute *plus* its current decode load).
+# We send it to four replicas, with three routing policies.
 #
-# We also run each policy twice: once with the scheduler's default cap of 128
-# concurrent requests per replica, and once capped at 32, which is what a replica
-# with less KV memory would be able to hold anyway.
+# - `round_robin` sends each request to the next replica in turn. It does not look
+#   at who sent the request, at what the replica holds, or at how busy it is. Every
+#   replica gets the same number of requests, but a user's second turn almost always
+#   lands somewhere other than the first, so its history has to be prefilled again.
+# - `sticky_lor` picks a replica for each *user*, once. The user's first request goes
+#   to the replica with the fewest outstanding requests, and every later turn from
+#   that user follows it there. This gets the most hits of the three, but the choice
+#   is made at the beginning and never revisited.
+# - `dynamo_kv` decides separately for every request. It gives each replica a score —
+#   the number of prompt blocks that replica would still have to compute, plus the
+#   number of KV blocks its running requests are currently holding — and sends the
+#   request to the lowest score. In other words it prefers the replica that already
+#   has your tokens, but it will send you elsewhere if that replica is busy right
+#   now.
+#
+# We run each policy twice, because routing only matters when the replicas are
+# actually short of something.
+#
+# The first run leaves the scheduler at its default limit of 128 concurrent requests
+# per replica. Four replicas can then work on 512 requests at once, which is more
+# than this workload ever has in flight. Nothing waits, and an uneven split of users
+# across replicas costs nothing.
+#
+# The second run limits each replica to 32 concurrent requests. A real replica runs
+# into a limit like this when its KV cache fills up (lecture 2): beyond some number
+# of simultaneous requests there is no memory for another one, and the rest wait in
+# a queue. This is the regime where the router's choice can be wrong.
 #
 # :::{note}
-# These requests are longer than the ones above, and a batch of them can exceed the
-# context range the course's runtime predictor is fitted for, so this experiment
-# passes `max_tokens=65536`. The first run fits a wider predictor grid, which takes
-# a minute; lecture 6 reuses the same grid.
+# These prompts are longer than the ones earlier in the lecture, and a batch of them
+# can exceed the context range the course's runtime predictor is fitted for, so
+# these runs pass `max_tokens=65536`. The first one fits a wider predictor grid,
+# which takes about a minute. Lecture 6 reuses the same grid.
 # :::
 
 # %%
-routing = {}
-for cap in (128, 32):
-    for policy in ("round_robin", "sticky_lor", "dynamo_kv"):
-        r = run(shared_app, shared_app_df, qps=16.0, num_replicas=4, prefix_caching=True,
-                global_scheduler=policy, batch_size_cap=cap, max_tokens=65536)
-        routing[(f"{cap} concurrent", policy)] = {
-            "KV cache hit rate": r.cache_hit_rate,
+def route(policy, cap):
+    r = run(shared_app, shared_app_df, qps=16.0, num_replicas=4, prefix_caching=True,
+            global_scheduler=policy, batch_size_cap=cap, max_tokens=65536)
+    return {"KV cache hit rate": r.cache_hit_rate,
             **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)", "E2E p50 (s)",
                            "total execution time (s)"]]}
-pd.DataFrame(routing).T.round(2)
+
+POLICIES = ("round_robin", "sticky_lor", "dynamo_kv")
+pd.DataFrame({p: route(p, 128) for p in POLICIES}).T.round(2)
 
 # %% [markdown]
-# With 128 concurrent requests allowed per replica, the cluster has enough headroom
-# that load balancing hardly matters, and pure affinity wins everything: `sticky_lor`
-# has the best hit rate, the best median *and* tail TTFT, and finishes the whole
-# workload first. A KV-aware router that also worries about load has nothing to
-# gain here.
+# With that much room, the simplest cache-aware answer is the best one.
+# `sticky_lor` has the highest hit rate (0.97), the lowest TTFT at both the median
+# and the tail, and it gets through the whole workload in the least time. Nothing is
+# ever short of capacity, so there is no reason to think about load at all, and the
+# only thing left to optimise is the cache — which pinning each user to one replica
+# does perfectly. `dynamo_kv` gives away a little of the hit rate to balance a load
+# that did not need balancing, and `round_robin` gives away more.
 #
-# Cap each replica at 32 concurrent requests and the picture changes:
+# Now the same three policies, with each replica limited to 32 concurrent requests.
+
+# %%
+pd.DataFrame({p: route(p, 32) for p in POLICIES}).T.round(2)
+
+# %% [markdown]
+# Every number has moved, and in different directions. Taking the policies one at a
+# time:
 #
-# - `round_robin` keeps the load even but recomputes a session's history every time
-#   it moves. Its hit rate is the lowest, and the wasted prefill shows up as
-#   capacity: it needs 34% more wall-clock time than the others to finish the same
-#   work, and its tail TTFT is a minute and a half.
-# - `sticky_lor` still has the best hit rate, but a session pinned to a replica
-#   stays there when that replica fills up with long answers. Its median TTFT is
-#   thirteen times worse than it was with headroom, and it now has the worst median
-#   end-to-end latency of the three.
-# - `dynamo_kv` keeps most of the hits (0.92 against sticky's 0.97) *and* the
-#   freedom to move a session when its replica is busy — which is cheap here,
-#   because a moved session still finds the 4,096-token preamble everywhere. It has
-#   the best median TTFT and the best median end-to-end latency, and finishes as
-#   quickly as sticky.
+# **`round_robin`** has the same hit rate as before, 0.87, because its routing does
+# not depend on how loaded anything is. What changed is what that costs. The
+# prefills it repeats are no longer free work done in spare capacity; they occupy
+# replicas that other requests are now waiting for. The clearest sign is the last
+# column: the cluster needs 366 seconds to finish the same 160 users, about a third
+# longer than the other two policies, and its tail TTFT is a minute and a half.
+# Wasted prefill turns into lost capacity as soon as capacity is scarce.
 #
-# No policy wins outright: `sticky_lor` still has much the best tail. That is the
-# trade-off — cache affinity against load balance — and the Dynamo-style score has
-# a knob for it. `overlap_score_weight` multiplies the cache term, so a larger
-# value means "care more about hits, less about load":
+# **`sticky_lor`** keeps its 0.97 hit rate and still finishes quickly, but its median
+# TTFT is now 1.1 seconds — thirteen times worse than the same policy had with
+# headroom. The reason is not that it chose badly: it spread the users evenly, and
+# the expensive users ended up spread evenly too. The reason is that it chose
+# *once*. A user is attached to one replica for the rest of the conversation, so
+# when that replica happens to be in the middle of a couple of long answers, the
+# user waits, even though another replica is free at that moment and holds the same
+# system prompt.
+#
+# **`dynamo_kv`** ends up at 0.92 — it loses a few hits whenever it moves a user
+# away from their own history — and in exchange it never leaves a request queued
+# behind a replica that is busy at that instant. It has the best median TTFT, 164 ms,
+# and the best median end-to-end time, and it finishes as fast as `sticky_lor`. The
+# shared system prompt is what makes this trade cheap: a moved user still finds most
+# of its prompt on the new replica.
+#
+# No policy wins on everything. `sticky_lor` still has much the best tail, and
+# `dynamo_kv`'s is the second worst. That is worth understanding, because it comes
+# straight out of the score: `dynamo_kv` measures a replica's load as the KV blocks
+# its *running* requests hold, which is not the same as the length of its queue. A
+# replica that is already at its limit of 32 concurrent requests, all of them small,
+# still looks cheap, so the router keeps sending to it and the queue behind it grows.
+# The requests caught in that queue are the tail.
+#
+# ## Tuning the trade-off
+#
+# How much a KV-aware router should care about the cache, relative to load, is a
+# knob rather than a law. In the score above, the cache term is multiplied by
+# `overlap_score_weight`, which Dynamo also exposes. The default is 1. Larger values
+# mean "prefer the replica that has my tokens, even if it is busy"; smaller values
+# mean "just balance the load".
+#
+# It is worth knowing roughly how big the two terms are here before turning the
+# knob. The cache term is at most about 4,800/16 = 300 blocks, which is one whole
+# prompt, and usually far less because of the shared system prompt. The load term is
+# the KV held by up to 32 running requests, which runs into the thousands of blocks.
+# So at weight 1 this router is mostly balancing load and using the cache to break
+# ties.
 
 # %%
 weights = {}
@@ -622,11 +695,15 @@ for w in (0.25, 1.0, 4.0):
 pd.DataFrame(weights).T.rename_axis("overlap_score_weight").round(2)
 
 # %% [markdown]
-# Turning the weight down makes the router ignore the cache and behave more like
-# round-robin; turning it up to 4 makes it behave like a sticky router that has
-# stopped watching the load, and the median end-to-end latency more than doubles.
-# The default of 1 is the balanced point for this workload, and nothing says it is
-# the right value for another one.
+# At 0.25 the cache barely counts, the hit rate drops towards round-robin's, and
+# latency gets worse. At 4 the cache term starts to outweigh the load term, so the
+# router behaves like a sticky one that has stopped watching how busy anything is:
+# the hit rate does not improve, and the median end-to-end time more than doubles,
+# from 9.8 to 26.2 seconds. The default of 1 happens to be the balanced point for
+# this workload. For a workload with shorter prompts, or more replicas, or less
+# shared text, the balanced point would sit somewhere else — which is the honest
+# summary of KV-aware routing: it is a cost function with a weight in it, and the
+# weight depends on your traffic.
 #
 # Routing on its own is the subject of {doc}`08-cluster-routing`.
 
