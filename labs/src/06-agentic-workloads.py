@@ -18,10 +18,9 @@
 # reads the result, calls another tool, writes code, runs it, reads the error,
 # tries again, and finally answers. The user waits for the whole chain.
 #
-# Three consequences shape everything in this lecture. The requests are
-# *dependent*: turn *k+1* cannot start until turn *k* has finished and its tool
-# call has returned, so the serving system has no say in how much of the work runs
-# at once. The prompts are long and repetitive, because each turn resends the whole
+# Three things differ from what we saw before. First, the requests are
+# *dependent*: turn *k+1* may not be able to start until turn *k* has finished and its tool
+# call has returned. The prompts are long and repetitive, because each turn resends the whole
 # conversation plus the new tool output, which is lecture 5's problem in its most
 # extreme form. And the thing a user waits for is the task, not the request: a p99
 # TTFT of 200 ms says little if the task takes six minutes.
@@ -38,6 +37,7 @@
 # summariser; we use OWL here. Each request carries its prompt and output token ids,
 # the turns it depended on, and a separately measured tool latency. The traces ship
 # with the simulator, so they are already on your disk after `lsg.setup()`.
+# We are also in the process of extending GAIATrace to more setups and datasets!
 #
 # :::{admonition} Learning goals
 # - Describe the structure of an agent session: turns, roles, dependencies,
@@ -78,9 +78,7 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # `lsg.gaia_sessions` loads recorded sessions, one row per LLM request. We take 24
 # of them out of the 165 tasks OWL ran. Sessions containing a request longer than
 # the course's runtime predictor was fitted for are skipped, which removes the
-# largest tasks — the full recording has requests of over 100,000 tokens. The last
-# section of the lecture collects that and the other differences from a production
-# deployment.
+# largest tasks (again, this course uses a downsized simulator for simplicity).
 
 # %%
 sessions = lsg.gaia_sessions(num_sessions=24, seed=0)
@@ -88,7 +86,10 @@ print(f"{sessions.session.nunique()} sessions, {len(sessions)} LLM requests")
 sessions.drop(columns="token_ids").head(8)
 
 # %% [markdown]
-# Each row is one request to the model:
+# The table gives a peek on how OWL solves a particular question.
+# Each row is one request to the model, which does the planning, coordination, web search, and etc.
+# Note that two models are used here: gpt-4o for tasks that do not require heavy thinking, and gpt-oss-120b for
+# tasks that require thinking. This is just how the authors of GAIATrace (which is me and my students!) decided to do it.
 #
 # - `session` / `turn`: which task, and the position in it.
 # - `role`: which agent inside the system issued it. OWL is a *multi-agent* system:
@@ -133,7 +134,7 @@ def show(i, head=0, tail=0, out=400):
 show(0, head=620, out=560)
 
 # %% [markdown]
-# That is the planner: it receives the user's task and a description of the
+# That is the planner: it receives the user's task ("I went to Virtue restaurant & bar ...") and a description of the
 # available workers, and emits a list of subtasks. Everything is marked up with
 # the model's chat template (`<|start|>`, `<|message|>`, `<|end|>`); the
 # `<|channel|>final` and `<|channel|>analysis` markers separate the answer from the
@@ -181,10 +182,12 @@ ax.legend(fontsize=8, ncol=3, loc="upper left")
 fig.tight_layout()
 
 # %% [markdown]
-# The prompt grows inside a stretch of turns and then drops: each time the
+# Each dot represents a sub-agent (plan, coordinate, web search, ...), and when the agent
+# use a tool, the bar shows the tool execution time.
+# The prompt length (y-axis of each dot) grows inside a stretch of turns and then drops: each time the
 # coordinator hands a subtask to a fresh worker, that worker starts a new
 # conversation with its own system prompt. Within a worker's stretch, every turn
-# adds a tool result to the prompt.
+# adds a tool result to the prompt. Again, this is how OWL was designed and not necessarily universal.
 #
 # The flat band of twelve large turns in the middle is not a conversation at all.
 # It is a **fan-out**: the web worker retrieved a long page, split it into twelve
@@ -197,8 +200,9 @@ one[one["role"] == "web summarize"].drop(columns="token_ids").head(4)
 # %% [markdown]
 # All twelve are released at the same instant, each with about 9,000 prompt tokens:
 # 100,000 tokens of prefill arriving at one replica at once, after a 22 s tool call
-# during which that replica had nothing from this session to do. Bursts like this
-# are not an accident of load; they are what the agent's own control flow produces.
+# during which that replica had nothing from this session to do.
+# You don't have to understand every piece that is happening in this plot; having a sense
+# that multi-agent systems are complex is probably enough.
 #
 # ## Tokens, time, and tools
 #
