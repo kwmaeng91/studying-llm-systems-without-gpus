@@ -88,3 +88,21 @@ renders identically:
 - Every simulation should finish in seconds and use < 1 GB of RAM, so labs run on
   free Colab/Binder. `llm_systems_wo_gpus` already shrinks the simulator's prediction grid for this.
 - Check that the model/GPU/TP combination you want exists with `lsg.catalog()`.
+
+## Translating a lecture
+
+The Korean pages are a parallel tree under `docs/ko/`. Plain Markdown pages are
+translated by hand; lecture notebooks are generated so that the English outputs
+are reused verbatim:
+
+1. Write `labs/ko/NN-name.md`, one translated markdown cell per block, blocks
+   separated by a line containing only `<!-- cell -->`. The number of blocks must
+   equal the number of markdown cells in the English notebook.
+2. Optionally write `labs/ko/NN-name.quiz.json`, the same list of questions as
+   `lsg.quiz(...)` takes, in Korean.
+3. Run `python labs/build_korean.py NN`, which writes
+   `docs/ko/lectures/NN-name.ipynb`.
+
+Keep technical terms (prefill, decode, tensor parallelism, KV cache, ...) in
+English. Re-run the script after editing an English lecture, and check that the
+cell counts still match — the script fails loudly if they do not.

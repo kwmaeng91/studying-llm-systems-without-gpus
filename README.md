@@ -36,8 +36,15 @@ pip install -r requirements-lab.txt -r requirements-docs.txt jupytext nbclient
 
 python labs/build_notebooks.py          # execute all labs
 python labs/build_notebooks.py 03       # just lecture 3
+python labs/build_korean.py             # Korean notebooks from labs/ko/*.md
 sphinx-build -b html docs docs/_build/html
 ```
+
+The site is bilingual. English pages live in `docs/`, Korean ones in `docs/ko/`,
+and a button in the sidebar switches between them. Korean lecture notebooks are
+not executed again: `labs/build_korean.py` takes the executed English notebook
+and swaps in the translated markdown from `labs/ko/NN-name.md` (cells separated
+by `<!-- cell -->`) and the translated quiz from `labs/ko/NN-name.quiz.json`.
 
 Notebooks are committed **with outputs**, so Read the Docs never runs the
 simulator (`nb_execution_mode = "off"`).

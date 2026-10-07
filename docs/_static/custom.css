@@ -15,3 +15,19 @@ div.cell_output { overflow-x: auto; }
 /* "Try it" exercise boxes. */
 .admonition.exercise { border-left: 4px solid #2980b9; }
 .admonition.exercise > .admonition-title { background: #2980b9; }
+
+/* Korean / English switch in the sidebar header. */
+.lang-switch { margin-top: .6em; }
+.lang-switch a {
+  display: inline-block; padding: .15em .7em; margin: 0 .15em;
+  border: 1px solid rgba(255,255,255,.4); border-radius: 3px;
+  color: #fcfcfc; font-size: 85%; text-decoration: none;
+}
+.lang-switch a:hover { background: rgba(255,255,255,.15); color: #fcfcfc; }
+.lang-switch a.active { background: #fcfcfc; color: #2980b9; border-color: #fcfcfc; }
+
+/* Show only the sidebar tree of the language being read. */
+body.lang-en .wy-menu-vertical p.caption[data-lang="ko"],
+body.lang-en .wy-menu-vertical p.caption[data-lang="ko"] + ul,
+body.lang-ko .wy-menu-vertical p.caption[data-lang="en"],
+body.lang-ko .wy-menu-vertical p.caption[data-lang="en"] + ul { display: none; }

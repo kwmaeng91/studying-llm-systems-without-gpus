@@ -4,6 +4,11 @@ By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in
 
 **A hands-on lecture series on LLM serving systems that you can follow even when you don't have GPUs.**
 
+This lecture series is offered in both Korean and English. Click the
+**English / 한국어** button at the top of the sidebar to change language. Fun fact:
+my mother tongue is Korean, but I wrote this in English and had Claude translate
+it into Korean 🌏
+
 The labs run on a **CPU-only simulator** of LLM inference clusters. It predicts
 each operation's runtime from profiles measured on real A100 and H100 GPUs, so you
 can experiment with hardware you don't have. The simulator we are using is
@@ -78,4 +83,11 @@ lectures/*
 reference/python-api
 reference/simulator-knobs
 reference/how-the-simulator-works
+```
+
+```{toctree}
+:hidden:
+:caption: 한국어
+
+ko/index
 ```
