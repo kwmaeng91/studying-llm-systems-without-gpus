@@ -7,7 +7,7 @@ By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in
 The labs run on a **CPU-only simulator** of LLM inference clusters. It predicts
 each operation's runtime from profiles measured on real A100 and H100 GPUs, so you
 can experiment with hardware you don't have. The simulator we are using is
-[Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) ([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725)), which extends Microsoft's
+[Vidur-Agent](https://github.com/psu-paws/Vidur-Agent) ([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725); disclaimer: our lab built this!), which extends Microsoft's
 [Vidur](https://github.com/microsoft/vidur) ([Agrawal et al., MLSys '24](https://arxiv.org/abs/2405.05465)).
 
 Each lecture pairs an explanation with a runnable notebook. Click
