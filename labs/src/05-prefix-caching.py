@@ -519,7 +519,7 @@ fig.tight_layout()
 # the session returns. This field still has a lot of interesting research questions.
 
 # %% [markdown]
-# ## The cache is per-replica
+# ## Prefix-cache-aware routing
 #
 # When each replica (e.g., a group of TP-2 GPU servers running inference) keeps its cached blocks to itself,
 # requests can benefit from prefix caching only if the replica they are allocated to holds the prefix blocks that they need.
@@ -538,12 +538,11 @@ fig.tight_layout()
 # For our experiment below, let's simply assume that KV blocks cannot move around, and it will be a full miss if
 # requests are routed to a wrong replica.
 #
-# The conversations we have used so far are too well behaved to tell the three
-# policies apart: every session costs the same, so pinning each one to a replica
-# balances the load by accident. Here is a workload with the two pressures a real
-# deployment has at once — 160 users of a single application, so every request opens
-# with the same 4,096-token system prompt; short conversations of three turns, so a
-# session's own history is small next to that shared preamble; and an uneven mix, in
+# The conversations we have used so far are too well behaved, with all the users asking the exact same length questions
+# and getting the same length answer. Here, we introduce a messier workload.
+# There are 160 users. Every user shares the same 4,096-token system prompt,
+# followed by a short conversation of three turns.  
+# TODO: REWRITE FROM HERE: and an uneven mix, in
 # which one conversation in four asks for a 2,000-token answer while the rest get
 # 200. A replica can now be useful to a session in two different ways — it may hold
 # that session's history, or merely the shared preamble — and the long answers mean
