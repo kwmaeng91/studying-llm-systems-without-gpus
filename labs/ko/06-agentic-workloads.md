@@ -108,6 +108,13 @@ Prompt 길이(각 점의 y축)는 몇 개의 turn에 걸쳐 자라다가 뚝 떨
 이 그래프에서 벌어지는 모든 것을 이해할 필요는 없고, 많은 부분이 이 agent 특유의 설계에서
 오는 것이니, multi-agent 시스템이 복잡하다는 감각 정도면 충분합니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+위 코드의 session id(`sessions.session == 4`)를 다른 숫자로 바꾸고 다시 돌려 보세요.
+과제마다 sub-agent들이 꽤 다른 패턴으로 협력해서 문제를 풉니다. 어떤 숫자가 가장 흥미로운
+그림을 만드나요?
+:::
+
 ## Token, 시간, 그리고 tool
 
 이제 sub-agent별로 prompt(입력)와 output token을 봅시다:
@@ -126,6 +133,15 @@ token인 turn은 prompt에 2초 남짓, 답변에 8초를 씁니다. 그러니 p
 prefill이 병목이 되는 것은 아닙니다(그럴 수도, 아닐 수도 있습니다).
 또 하나 고려할 것은 prefix cache(5강)입니다. Prefix cache hit rate가 높으면 prefill은 훨씬
 싸집니다.
+
+:::{admonition} 직접 해보기
+:class: exercise
+기록 당시에는 모델을 두 개 썼으므로, 이 시스템의 실제 배포는 하나가 아니라 두 개의 serving
+문제입니다. `model` 열을 이용해 각 모델이 이 workload에서 얼마나 많은 GPU 시간을 필요로
+할지 계산해 보세요. 모델별로 prompt와 output token을 세고, 위의 token당 약 0.25 ms와 약
+45 ms로 값을 매기면 됩니다. GPU가 여덟 장이라면 어떻게 나누겠습니까? 그리고 어느 pool이
+먼저 포화될까요?
+:::
 
 ## Agentic workload에서 prefix caching 다시 보기
 
@@ -153,6 +169,13 @@ Mooncake는 Kimi chatbot에 오는 tool/agent 성격 트래픽에서 약 59%, �
 agentic 시스템의 올바른 설계가 무엇인지 아직 합의가 없으므로, 이 숫자는 합의가 모일 때까지
 앞으로도 계속 흔들릴 것입니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+`lsg.gaia_sessions`를 `seed=1`, `num_sessions=48`로 다시 돌리고 prompt:output 비율과
+이상적인 hit rate를 다시 계산해 보세요. 표본이 바뀌어도 얼마나 안정적인가요? 이는 하나의
+trace에 맞춰 시스템을 튜닝하는 것에 대해 무엇을 말해 주나요?
+:::
+
 ## Trace를 서비스해 보기
 
 이제 trace를 simulator에 넣어 봅시다.
@@ -176,6 +199,16 @@ Tool latency는 trace에서 가져오므로, turn은 실제 tool이 걸린 만�
 줄어듭니다. 앞 문장의 뒷부분이 여기서 작동합니다. 과제는 시간의 대부분을 token 생성과 tool
 대기에 쓰는데, prefix caching은 둘 중 어느 것도 건드리지 못합니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+1. **Cache가 tool 호출을 견디나?** 이 비교를 작은 KV cache(`kv_blocks=4000`, 5강)로 다시
+   돌리고 `r.cache`를 보세요. Block이 몇 개나 evict되고 hit rate는 어떻게 되나요? 그리고
+   tool을 가장 오래 기다린 session들이 다른 것보다 더 많이 잃나요?
+2. **Agent를 위한 chunk size.** 위 실행들은 기본값 `chunk_size=512`를 썼습니다. 512,
+   2048, 4096을 쓸어 보고 TTFT와 과제 시간을 보고하세요. 채팅에서는 나빴던 chunk
+   size(3강)가 여기서는 왜 더 나아 보이고, prefix caching을 켜면 답이 달라지나요?
+:::
+
 ## 과제의 시간은 어디로 가나
 
 Session을 뜯어 봅시다. 각 turn의 막대는 도착부터 첫 token까지(기다림과 prefill), 그다음
@@ -193,6 +226,13 @@ Prefix cache hit rate가 낮고 같은 GPU에 다른 요청이 많다면 막대�
 다시 말하지만, 가운데의 병렬 과제 열두 개는 OWL이 아주 긴 웹 스크랩 텍스트를, context 길이를
 크게 늘리지 않으면서 요약하려는 장면입니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+열두 개를 기다리는 join turn(`dep`에 항목이 열두 개인 turn)이 *첫* 의존 turn이 끝난 뒤
+얼마나 더 기다리는지 재 보세요. 그중 얼마가 자기 형제들 뒤에 줄 서서 기다린 시간이고,
+그것을 줄이려면 scheduler가 무엇을 알아야 할까요?
+:::
+
 ## 정리
 
 | | 무엇을 보았나 |
@@ -201,31 +241,6 @@ Prefix cache hit rate가 낮고 같은 GPU에 다른 요청이 많다면 막대�
 | Token | 보통 input token이 output token보다 많지만, agent의 역할에 따라 다르다 |
 | 시간 | 여전히 decode가 지배한다 (특히 batch size가 작고 prefix cache hit rate가 높을 때) |
 | Prefix caching | hit rate는 약 60%이고 TTFT를 6배 개선하지만, 중앙값 과제 시간은 4분의 1 정도만 줄인다 |
-
-## 연습문제
-
-:::{admonition} 직접 해보기
-:class: exercise
-
-1. **Cache가 tool 호출을 견디나?** Caching 비교를 작은 KV cache(`kv_blocks=4000`, 5강)로
-   다시 돌리고 `r.cache`를 보세요. Block이 몇 개나 evict되고 hit rate는 어떻게 되나요? 그리고
-   tool을 가장 오래 기다린 session들이 다른 것보다 더 많이 잃나요?
-2. **Agent를 위한 chunk size.** 위 실행들은 기본값 `chunk_size=512`를 썼습니다. replica
-   하나짜리 실행에서 512, 2048, 4096을 쓸어 보고 TTFT와 과제 시간을 보고하세요. 채팅에서는
-   나빴던 chunk size(3강)가 여기서는 왜 더 나아 보이고, prefix caching을 켜면 답이 달라지나요?
-3. **Fan-out의 비용.** Session 하나짜리 타임라인에서, 열두 개를 기다리는 join turn(`dep`에
-   항목이 열두 개인 turn)이 *첫* 의존 turn이 끝난 뒤 얼마나 더 기다리는지 재 보세요. 그중
-   얼마가 자기 형제들 뒤에 줄 서서 기다린 시간이고, 그것을 줄이려면 scheduler가 무엇을
-   알아야 할까요?
-4. **두 pool의 크기 정하기.** `model` 열을 이용해, 이 workload에서 두 모델이 각각 얼마나
-   많은 GPU 시간을 필요로 할지 계산해 보세요. 모델별로 prompt와 output token을 세고, 위에서
-   측정한 token당 약 0.25 ms와 약 45 ms로 값을 매기면 됩니다. GPU가 여덟 장이라면 어떻게
-   나누겠습니까? 그리고 어느 pool이 먼저 포화될까요? 그다음 `lsg.gaia_sessions`가 보여 주는,
-   어떤 역할이 임계 경로에 있는지와 비교해 확인해 보세요.
-5. **다른 표본.** `seed=1`, `num_sessions=48`로 특성 분석을 다시 돌려 보세요.
-   prompt:output 비율과 이상적인 hit rate는 얼마나 안정적인가요? 이는 하나의 trace에 맞춰
-   시스템을 튜닝하는 것에 대해 무엇을 말해 주나요?
-:::
 
 ## 이해도 확인
 

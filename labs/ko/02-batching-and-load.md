@@ -58,6 +58,14 @@ TTFT는 batch size에 **선형으로** 늘어납니다. 요청이 하나 늘 때
 Prompt $B$개의 batch는 연산량이 그냥 $B$배이고, GPU는 이미 연산하느라 바빴으므로 얻을
 것이 별로 없습니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+**더 짧은 prompt.** 위의 prompt 길이를 512에서 128 token으로 바꾸고(`prefill_tokens=`와
+throughput 계산식 둘 다) 다시 돌려 보세요. Prefill batching이 전보다 더 도움이 되나요,
+덜 되나요? Prefill이 compute-bound라는 1강의 내용으로 이유를 설명해 보세요. 돌리기 전에
+먼저 예상을 적어 보세요.
+:::
+
 ## Decode batching하기
 
 이번에는 decode 전용 요청 $B$개(각각 output 256 token)가 함께 도착하면 어떻게 되는지
@@ -100,6 +108,16 @@ output 256 token의 decode 전용 요청으로 부하를 쓸어 봅니다.
   키울 수 없어서 요청이 queue에서 기다리기 때문입니다. 여기에는 prefill이 전혀 없지만
   (decode 전용 요청이니까요), 기다림만으로도 TTFT가 늘어납니다. 앞선 요청이 끝나서 자리가
   날 때까지 새 요청은 시작할 수 없으니까요.
+
+:::{admonition} 직접 해보기
+:class: exercise
+**Knee는 어디인가.** 동시에 decode할 수 있는 요청은 최대 128개이고(scheduler의
+batch-size 상한), 요청 하나는 TPOT 한 번 정도가 걸리는 step을 `decode_tokens`번
+필요로 합니다. 여기서 출발해, output이 256 token일 때 시스템이 감당할 수 있는 최대
+도착률을 추정하고 위 그래프의 knee와 비교해 보세요. 그다음 (a) `decode_tokens=128`,
+(b) `batch_size_cap=64`(`lsg.sweep`과 `lsg.simulate`의 인자)일 때의 knee를 예측하고
+sweep을 다시 돌려 확인해 보세요.
+:::
 <!-- cell -->
 ### p50보다 p99가 먼저 나빠진다
 
@@ -115,6 +133,13 @@ TTFT와 TPOT은 둘 다 중요하고, 각각 자기 목표를 지켜야 합니�
 아래여야 한다고들 합니다. 이를 한 숫자로 요약하는 흔한 방법이 **goodput**입니다.
 service-level objective (SLO)를 여전히 만족하는 가장 높은 부하를 말합니다.
 <!-- cell -->
+:::{admonition} 직접 해보기
+:class: exercise
+**더 빡빡한 SLO.** 위의 TPOT 목표를 50 ms에서 40 ms로 조이고 다시 돌려 보세요. Goodput은
+어떻게 되고, 10 ms 차이가 왜 그렇게 크게 작용할까요? 부하에 따라 TPOT p99가 어떻게
+자라는지 보세요.
+:::
+
 ## 정리
 
 | | 무엇을 보았나 |
@@ -140,28 +165,6 @@ Prefill과 decode를 같은 batch에 섞으면 어떻게 될까요? 위에서 �
 :::
 
 다음 강의에서 이 질문에 답합니다.
-
-## 연습문제
-
-:::{admonition} 직접 해보기
-:class: exercise
-각 문제는 위의 코드를 바꿔서 다시 돌려 보는 것입니다. 돌리기 *전에* 먼저 예상을
-적어 보세요.
-
-1. **더 짧은 prompt.** "Prefill batching하기"에서 prompt 길이를 512에서 128 token으로
-   바꾸고(`prefill_tokens=`와 throughput 계산식 둘 다) 다시 돌려 보세요. Prefill
-   batching이 전보다 더 도움이 되나요, 덜 되나요? Prefill이 compute-bound라는 1강의
-   내용으로 이유를 설명해 보세요.
-2. **Knee는 어디인가.** 동시에 decode할 수 있는 요청은 최대 128개이고(scheduler의
-   batch-size 상한), 요청 하나는 TPOT 한 번 정도가 걸리는 step을 `decode_tokens`번
-   필요로 합니다. 여기서 출발해, output이 256 token일 때 시스템이 감당할 수 있는 최대
-   도착률을 추정하고 부하 sweep의 knee와 비교해 보세요. 그다음 (a) `decode_tokens=128`,
-   (b) `batch_size_cap=64`(`lsg.sweep`과 `lsg.simulate`의 인자)일 때의 knee를 예측하고
-   sweep을 다시 돌려 확인해 보세요.
-3. **더 빡빡한 SLO.** "Goodput"에서 TPOT 목표를 50 ms에서 40 ms로 조이고 다시 돌려
-   보세요. Goodput은 어떻게 되고, 10 ms 차이가 왜 그렇게 크게 작용할까요? 부하에 따라
-   TPOT p99가 어떻게 자라는지 보세요.
-:::
 
 ## 이해도 확인
 

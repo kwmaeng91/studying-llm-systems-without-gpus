@@ -267,6 +267,14 @@ prefill합니다. 사용자의 새 메시지와 assistant의 직전 답변이죠
 TPOT도 좋아지는데, 3강에서 본 이유 때문입니다. Prefill이 짧아지면 decode 옆에 큰 prefill
 chunk를 싣고 가는 step이 줄어듭니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+**Replica가 얼마나 더 많은 부하를 감당할 수 있나?** Prompt token의 83%가 사라지지만,
+prefill은 전체 작업의 일부일 뿐입니다. 이 trace에서 caching을 끄고 켜며 `qps`를 1에서
+8까지 쓸어 보고, 각각 p99 TTFT를 2초 아래로 유지하는 가장 높은 도착률을 찾아보세요
+(2강의 goodput 개념). 개선 폭이 83% 근처라도 되나요? 그 차이를 설명해 보세요.
+:::
+
 이득이 대화 전체에 고르게 퍼지는 것은 아닙니다. Turn별로 봅시다.
 <!-- cell -->
 Caching이 없으면 대화는 turn이 지날수록 비싸집니다. Prompt가 자라니 TTFT도 자라죠.
@@ -313,6 +321,15 @@ system prompt, 그다음 대화 — 조립되므로, 고정된 tool 목록과 �
 앞에 옵니다. 다른 제공자들은 표시 없이 자동으로 prefix를 맞춥니다. 어느 쪽이든 application이
 통제하는 것은 우리가 여기서 재고 있는 바로 그것입니다. 무엇을 앞에 두느냐죠.
 <!-- cell -->
+:::{admonition} 직접 해보기
+:class: exercise
+**Block 단위.** `chat_trace`는 `block_size=16`(vLLM 기본값)으로 씁니다. Trace를
+32(TensorRT-LLM의 값)와, 과장해서 256으로 다시 만들어 hit rate를 비교해 보세요. 굵은
+block에서 더 많이 손해 보는 쪽은 여러 turn짜리 workload인가요, 지금 이 공유 preamble
+workload인가요? Block을 메모리 계층 사이로 옮기는 이야기를 떠올리면, 그래도 큰 block을
+원할 이유는 무엇일까요?
+:::
+
 ## Cache는 유한하다
 
 캐시된 block은 *실행 중인* 요청의 KV cache와 같은 pool에 있습니다. 시스템이 block을
@@ -336,6 +353,18 @@ TTFT는 cache 없는 행보다 네 배 낮으니까요. 다만 tail은 거의 �
 시스템은 그것을 **CPU 메모리나 SSD로 흘려보내고**(vLLM의 offloading, LMCache, Mooncake의
 cluster 전역 pool) session이 돌아오면 다시 가져옵니다. 이 분야에는 아직 흥미로운 연구
 주제가 많이 남아 있습니다.
+
+:::{admonition} 직접 해보기
+:class: exercise
+1. **시끄러운 이웃.** `chat40`에, prompt가 길고(3,000 token) 다른 어떤 것과도 아무것도
+   공유하지 않는 session을 몇 개 더해 보세요. 두 번째 tenant처럼요. 그 혼합을
+   `kv_blocks=6000`에서 돌려 보세요. 대화 40개만 있을 때는 eviction이 거의 없던
+   지점입니다. 평범한 대화들은 hit rate를 얼마나 잃나요? 그리고 시끄러운 session이 몇
+   개만 있어도 문제가 되나요? 이는 한 replica에서 여러 tenant를 서비스하는 것에 대해
+   무엇을 말해 주나요?
+2. **Caching이 최적 chunk size를 바꾸나?** 3강의 `chunk_size` sweep(128, 512, 2048)을
+   `chat40`에서 caching을 끄고 켜며 반복해 보세요. 최적 chunk size가 달라지나요?
+:::
 <!-- cell -->
 ## 정리
 
@@ -348,32 +377,6 @@ cluster 전역 pool) session이 돌아오면 다시 가져옵니다. 이 분야�
 | TPOT / decode에 대한 효과 | 간접적일 뿐 (step당 prefill chunk가 더 적고 더 짧아짐) |
 | 무엇이 망치나 | 공유 텍스트 앞에 놓인 가변 텍스트, 메모리 압박에 따른 eviction |
 | 무엇과 얽히나 | chunk size, KV cache 용량, 실행 중인 요청이 필요로 하는 메모리 양 |
-
-## 연습문제
-
-:::{admonition} 직접 해보기
-:class: exercise
-각 문제는 위의 코드를 바꿔서 다시 돌려 보는 것입니다. 돌리기 *전에* 먼저 예상을
-적어 보세요.
-
-1. **Replica가 얼마나 더 많은 부하를 감당할 수 있나?** Prompt token의 83%가 사라지지만,
-   prefill은 전체 작업의 일부일 뿐입니다. `chat40`에서 caching을 끄고 켜며 `qps`를 1에서
-   8까지 쓸어 보고, 각각 p99 TTFT를 2초 아래로 유지하는 가장 높은 도착률을 찾아보세요
-   (2강의 goodput 개념). 개선 폭이 83% 근처라도 되나요? 그 차이를 설명해 보세요.
-2. **Block 단위.** `chat_trace`는 `block_size=16`(vLLM 기본값)으로 씁니다. Trace를
-   32(TensorRT-LLM의 값)와, 과장해서 256으로 다시 만들어 hit rate를 비교해 보세요. 굵은
-   block에서 더 많이 손해 보는 쪽은 여러 turn짜리 workload인가요, 공유 preamble
-   workload인가요? Block을 메모리 계층 사이로 옮기는 이야기를 떠올리면, 그래도 큰 block을
-   원할 이유는 무엇일까요?
-3. **시끄러운 이웃.** `chat40`에, prompt가 길고(3,000 token) 다른 어떤 것과도 아무것도
-   공유하지 않는 session을 몇 개 더해 보세요. 두 번째 tenant처럼요. 그 혼합을
-   `kv_blocks=6000`에서 돌려 보세요. 대화 40개만 있을 때는 eviction이 거의 없던
-   지점입니다. 평범한 대화들은 hit rate를 얼마나 잃나요? 그리고 시끄러운 session이 몇 개만
-   있어도 문제가 되나요? 이는 한 replica에서 여러 tenant를 서비스하는 것에 대해 무엇을
-   말해 주나요?
-4. **Caching이 최적 chunk size를 바꾸나?** 3강의 `chunk_size` sweep(128, 512, 2048)을
-   `chat40`에서 caching을 끄고 켜며 반복해 보세요. 최적 chunk size가 달라지나요?
-:::
 
 ## 이해도 확인
 

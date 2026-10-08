@@ -88,6 +88,12 @@ chunk를 실은 step을 자주 돌립니다:
 PD cluster에서 replica 0은 긴 prefill step을 돌리는 prefill replica이고, replica 1은
 decode step만 돌리는 decode replica입니다. 바로 이 분리가 TPOT을 평평하게 유지합니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+**더 짧은 문서.** `mixed_trace`에서 문서 길이를 3,800에서 1,000 token으로 바꾸고 이 정면
+승부를 다시 돌려 보세요. Disaggregation이 여전히 TPOT을 그만큼 개선하나요? 왜 그럴까요?
+:::
+
 ## 각 pool을 따로 튜닝하기
 
 단계를 분리하면 두 번째 이점이 생깁니다. 각 pool을 자기 일에 맞게 설정할 수 있다는
@@ -116,6 +122,14 @@ TPOT은 decode step에 prefill chunk가 더 많이 들어오면서 꾸준히 자
 빨리 시작되는지가 더 중요하거나 cluster가 뜨겁게 돌아간다면, chunked 설계가 하드웨어를 더
 유연하게 씁니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+**Goodput.** SLO가 p99 TTFT < 2 s, p99 TPOT < 60 ms라고 합시다. 이 sweep으로 chunked
+설계와 PD 1:1의 goodput(2강)을 구해 보세요. 다음 절을 읽고 나면, 여덟 장에서 chunked
+설계(replica 4개)와 PD 3:1에 대해, 더 높은 부하도 sweep에 추가해서 반복해 보세요. 어느
+설계가 이기고, 그 답은 GPU 수에 따라 달라지나요?
+:::
+
 ## 비율이 중요하다: GPU 여덟 장
 
 GPU 네 장에서는 가능한 분할이 1:1뿐이었습니다. 실제 배포에서는 각 단계에 replica를 몇 개씩
@@ -136,6 +150,13 @@ GPU 네 장에서는 가능한 분할이 1:1뿐이었습니다. 실제 배포에
    문서 비율이 40%로 오르면 TTFT가 수 초로 뜁니다. 반면 chunked 설계는 어느 GPU나 어떤
    일이든 할 수 있으므로 완만하게 나빠집니다. 하루 중 트래픽 구성이 바뀌는 실제 배포라면,
    pool을 다시 조정하거나 불균형한 시간대를 감수해야 합니다.
+
+:::{admonition} 직접 해보기
+:class: exercise
+**최적 분할 찾기.** 위의 두 workload에 채팅만 있는 workload(`mixed_trace(0.0)`)를
+추가하고 다시 돌려 보세요. 이제 어떤 분할이 가장 좋은가요? TTFT와 TPOT 둘 다에서
+chunked 설계를 이기는 PD 분할이 있나요? 돌리기 전에 먼저 예상을 적어 보세요.
+:::
 
 ## 보호할 것이 없을 때
 
@@ -181,25 +202,6 @@ prefill(3,800 token에 약 650 ms)보다는 훨씬 짧으므로, 실제 시스�
 | 튜닝 | 설정 하나가 두 단계를 모두 맞춰야 함 | 각 pool을 자기 단계에 맞게 설정(chunk size, parallelism, GPU 종류) |
 | 추가 비용 | 없음 | KV cache 전송. 빠른 interconnect 필요 |
 | 유리한 때 | 짧은 prompt, 변하는 트래픽 구성, TTFT가 가장 중요할 때 | 긴 prompt, 빡빡한 TBT/TPOT 목표, 구성이 안정적이고 분할을 잘 잡았을 때 |
-
-## 연습문제
-
-:::{admonition} 직접 해보기
-:class: exercise
-각 문제는 위의 코드를 바꿔서 다시 돌려 보는 것입니다. 돌리기 *전에* 먼저 예상을
-적어 보세요.
-
-1. **최적 분할 찾기.** "비율이 중요하다"에서 채팅만 있는 workload(`mixed_trace(0.0)`)를
-   두 workload에 추가하고 다시 돌려 보세요. 이제 어떤 분할이 가장 좋은가요? TTFT와 TPOT
-   둘 다에서 chunked 설계를 이기는 PD 분할이 있나요?
-2. **Goodput.** SLO가 p99 TTFT < 2 s, p99 TPOT < 60 ms라고 합시다. GPU 네 장의 부하
-   sweep으로 chunked 설계와 PD 1:1의 goodput(2강)을 구해 보세요. 그다음 여덟 장에서
-   chunked 설계(replica 4개)와 PD 3:1에 대해, 더 높은 부하도 sweep에 추가해서 반복해
-   보세요. 어느 설계가 이기고, 그 답은 GPU 수에 따라 달라지나요?
-3. **더 짧은 문서.** `mixed_trace`에서 문서 길이를 3,800에서 1,000 token으로 바꾸고 GPU
-   네 장의 정면 승부를 다시 돌려 보세요. Disaggregation이 여전히 TPOT을 그만큼
-   개선하나요? 왜 그럴까요?
-:::
 
 ## 이해도 확인
 

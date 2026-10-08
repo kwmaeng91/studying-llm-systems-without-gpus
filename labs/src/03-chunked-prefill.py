@@ -374,6 +374,12 @@ print(f"longest gap between two tokens for a chat user: {1e3 * gap_chunk:.0f} ms
 # load the weights, and **a step that mixes them uses both**. Chunked prefill gets
 # the efficiency of batching (policy 3) without its long steps.
 #
+# :::{admonition} Try it
+# :class: exercise
+# Replace the 3,800-token document in the scenario with a 1,000-token one. How
+# long is the stall with `chunk_size=4096`? With 512? Is chunking still worth it?
+# :::
+#
 # ## Choosing the chunk size
 #
 # The token budget is a knob, and it trades one latency against the other:
@@ -480,6 +486,14 @@ fig.tight_layout()
 # 128), and the stalls are milder because fewer documents arrive. **Scheduling
 # matters most when the system is busy**, and that is also when choosing the budget
 # is hardest.
+#
+# :::{admonition} Try it
+# :class: exercise
+# 1. Raise the fraction of documents in the mixed workload to 40%. Does the best
+#    `chunk_size` for p99 TPOT change?
+# 2. Suppose your SLO is p99 TTFT < 2 s **and** p99 TPOT < 100 ms. Find the largest
+#    `qps` you can sustain, and the `chunk_size` that achieves it.
+# :::
 #
 # ## TPOT vs. TBT: what the average hides
 #
@@ -644,18 +658,6 @@ fig.tight_layout()
 # Chunked prefill reduces the interference but cannot remove it, because prefill
 # and decode still share the same GPUs. {doc}`04-pd-disaggregation` explores the
 # alternative: running them on separate GPUs.
-#
-# ## Exercises
-#
-# :::{admonition} Try it
-# :class: exercise
-# 1. In the scenario, replace the 3,800-token document with a 1,000-token one. How
-#    long is the stall with `chunk_size=4096`? With 512? Is chunking still worth it?
-# 2. Raise the fraction of documents in the mixed workload to 40%. Does the best
-#    `chunk_size` for p99 TPOT change?
-# 3. Suppose your SLO is p99 TTFT < 2 s **and** p99 TPOT < 100 ms. Find the
-#    largest `qps` you can sustain, and the `chunk_size` that achieves it.
-# :::
 #
 # ## Check your understanding
 #

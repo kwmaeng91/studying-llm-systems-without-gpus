@@ -363,6 +363,15 @@ pd.DataFrame({k: {**r.summary()[cols], "prompt tokens computed": r.requests["req
 # TPOT improves as well, for the reason lecture 3 gave: shorter prefills mean
 # fewer steps that carry a big prefill chunk alongside the decodes.
 #
+# :::{admonition} Try it
+# :class: exercise
+# **How much more load can the replica take?** 83% of the prompt tokens disappear,
+# but prefill is only one part of the work. Sweep `qps` from 1 to 8 on this trace
+# with caching off and on, and for each find the highest arrival rate that keeps
+# p99 TTFT under 2 s (the goodput idea from lecture 2). Is the improvement anywhere
+# near 83%? Account for the gap.
+# :::
+#
 # The gain is not spread evenly over the conversation. Let's look per turn.
 
 # %%
@@ -455,6 +464,15 @@ pd.DataFrame(layout).T.round(2)
 # application controls is the same thing we are measuring here: what goes first.
 
 # %% [markdown]
+# :::{admonition} Try it
+# :class: exercise
+# **Block granularity.** `chat_trace` writes `block_size=16`, vLLM's default.
+# Rebuild the traces at 32 (TensorRT-LLM's) and at an exaggerated 256, and compare
+# hit rates. Which loses more from coarse blocks: the multi-turn workload or this
+# shared-preamble one? Why would anyone still want a larger block, given what the
+# lecture said about moving blocks between memory tiers?
+# :::
+#
 # ## The cache is finite
 #
 # Cached blocks live in the same pool as the KV cache of the *running* requests.
@@ -510,6 +528,19 @@ fig.tight_layout()
 # cached block, many production systems **spill it to CPU memory or SSD**
 # (vLLM's offloading, LMCache, Mooncake's cluster-wide pool) and fetch it back when
 # the session returns. This field still has a lot of interesting research questions.
+#
+# :::{admonition} Try it
+# :class: exercise
+# 1. **A noisy neighbour.** Add to `chat40` a handful of extra sessions whose
+#    prompts are long (3,000 tokens) and share nothing with anything else, as a
+#    second tenant would. Run the mixture at `kv_blocks=6000`, where the 40
+#    conversations on their own had almost no evictions. How much hit rate do the
+#    ordinary conversations lose, and how few noisy sessions does it take to
+#    matter? What does that say about serving several tenants from one replica?
+# 2. **Does caching change the best chunk size?** Repeat lecture 3's `chunk_size`
+#    sweep (128, 512, 2048) on `chat40` with caching off and on. Does the best
+#    chunk size move?
+# :::
 
 # %% [markdown]
 # ## Summary
@@ -523,34 +554,6 @@ fig.tight_layout()
 # | Effect on TPOT / decode | indirect only (fewer and shorter prefill chunks per step) |
 # | Killed by | variable text placed before shared text; eviction under memory pressure |
 # | Interacts with | chunk size, KV-cache capacity, and how much memory the running requests need |
-#
-# ## Exercises
-#
-# :::{admonition} Try it
-# :class: exercise
-# Each exercise asks you to change code above and rerun it. Write down your
-# prediction *before* you run.
-#
-# 1. **How much more load can the replica take?** 83% of the prompt tokens
-#    disappear, but prefill is only one part of the work. Sweep `qps` from 1 to 8 on
-#    `chat40` with caching off and on, and for each find the highest arrival rate
-#    that keeps p99 TTFT under 2 s (the goodput idea from lecture 2). Is the
-#    improvement anywhere near 83%? Account for the gap.
-# 2. **Block granularity.** `chat_trace` writes `block_size=16`, vLLM's default.
-#    Rebuild the trace at 32 (TensorRT-LLM's) and at an exaggerated 256, and compare
-#    hit rates. Which workload loses more from coarse blocks: the multi-turn one or
-#    the shared-preamble one? Why would anyone still want a larger block, given
-#    what the lecture said about moving blocks between memory tiers?
-# 3. **A noisy neighbour.** Add to `chat40` a handful of extra sessions whose
-#    prompts are long (3,000 tokens) and share nothing with anything else, as a
-#    second tenant would. Run the mixture at `kv_blocks=6000`, where the 40
-#    conversations on their own had almost no evictions. How much hit rate do the
-#    ordinary conversations lose, and how few noisy sessions does it take to matter?
-#    What does that say about serving several tenants from one replica?
-# 4. **Does caching change the best chunk size?** Repeat lecture 3's `chunk_size`
-#    sweep (128, 512, 2048) on `chat40` with caching off and on. Does the best
-#    chunk size move?
-# :::
 #
 # ## Check your understanding
 #

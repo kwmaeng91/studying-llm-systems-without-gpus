@@ -154,6 +154,23 @@ $2 \times 64\ \text{layer} \times 8\ \text{KV head} \times 128 \times 2\ \text{B
 이므로, 65.5 GB의 weight를 읽는 것에 비하면 약간의 오버헤드만 더해질 뿐입니다.
 (Prompt가 더 길어지면 이야기가 달라지는데, 뒤에서 다룹니다.)
 
+:::{admonition} 직접 해보기
+:class: exercise
+각 문제는 돌리기 전에 먼저 예상을 적어 보세요.
+
+1. **GPU를 늘리면.** `SYSTEM`을 `tensor_parallel=4`로 바꾸고 "Prefill은 prompt 길이에
+   비례한다"부터 여기까지의 셀을 다시 돌려 보세요(bound 계산의 `n_gpus = 4`도 함께
+   바꾸세요). GPU가 두 배면 TTFT와 TPOT은 어떻게 될까요? 어느 쪽이 예상에서 더 많이
+   벗어나고, 그 이유는 무엇일까요? (힌트: GPU들은 매 layer마다 부분 결과를 주고받아야
+   하는데, decode step에는 그 시간을 가릴 만한 일이 별로 없습니다.)
+2. **더 빠른 GPU.** Qwen2.5-32B는 A100에서만 profiling되어 있으므로, GPU 한 장에 올라가는
+   모델로 바꿔 봅시다: `dict(model="meta-llama/Meta-Llama-3-8B", device="a100",
+   tensor_parallel=1)`. Prompt 4,096 token에 output 128 token인 요청 하나를
+   simulation한 뒤, `device`를 `"h100"`으로 바꿔 다시 돌려 보세요. H100은 A100보다
+   FLOP/s가 약 3.2배(989 vs. 312 TFLOP/s)지만 메모리 대역폭은 약 1.7배(3.35 vs. 2.0
+   TB/s)밖에 되지 않습니다. TTFT와 TPOT이 각각 얼마나 좋아질지 예상하고 확인해 보세요.
+:::
+
 ## Decode는 output 길이에 비례한다
 
 Prompt를 고정하면 E2E latency는 output token 수에 대한 직선이 되고, 그 기울기가
@@ -173,6 +190,14 @@ prompt에 64 token 답변이라 해도 시간의 대부분은 decode에 쓰입�
 이것이 LLM serving 연구의 많은 부분(전부는 아닙니다!)이 decode를 겨냥하는 이유입니다.
 요청 하나가 시간을 쓰는 곳이자, GPU의 연산 유닛이 놀고 있는 곳이니까요.
 
+:::{admonition} 직접 해보기
+:class: exercise
+**언제 prefill이 이기나.** 64 token 답변일 때 prefill과 decode가 같은 시간이 되는 prompt
+길이를 찾아보세요. 먼저 위에서 측정한 prompt token당 약 0.2 ms와 output token당 약 39
+ms로 추정한 다음, 코드의 격자를 바꿔 확인해 보세요. (요청당 16,384 token 제한을 잊지
+마세요.)
+:::
+
 ## 정리
 
 | | Prefill | Decode (요청 하나) |
@@ -184,30 +209,6 @@ prompt에 64 token 답변이라 해도 시간의 대부분은 decode에 쓰입�
 
 Decode는 GPU의 연산 유닛을 거의 놀립니다. 2강에서는 serving system이 여러 요청을
 **batching**해서 이 유닛들을 일하게 만드는 방법을 봅니다.
-
-## 연습문제
-
-:::{admonition} 직접 해보기
-:class: exercise
-각 문제는 위의 코드를 바꿔서 다시 돌려 보는 것입니다. 돌리기 *전에* 먼저 예상을
-적어 보세요.
-
-1. **GPU를 늘리면.** `SYSTEM`을 `tensor_parallel=4`로 바꾸고 "Prefill은 prompt 길이에
-   비례한다"부터 "Decode는 memory-bound이다"까지의 셀을 다시 돌려 보세요(bound 계산의
-   `n_gpus = 4`도 함께 바꾸세요). GPU가 두 배면 TTFT와 TPOT은 어떻게 될까요? 어느 쪽이
-   예상에서 더 많이 벗어나고, 그 이유는 무엇일까요? (힌트: GPU들은 매 layer마다 부분
-   결과를 주고받아야 하는데, decode step에는 그 시간을 가릴 만한 일이 별로 없습니다.)
-2. **더 빠른 GPU.** Qwen2.5-32B는 A100에서만 profiling되어 있으므로, GPU 한 장에 올라가는
-   모델로 바꿔 봅시다: `dict(model="meta-llama/Meta-Llama-3-8B", device="a100",
-   tensor_parallel=1)`. Prompt 4,096 token에 output 128 token인 요청 하나를
-   simulation한 뒤, `device`를 `"h100"`으로 바꿔 다시 돌려 보세요. H100은 A100보다
-   FLOP/s가 약 3.2배(989 vs. 312 TFLOP/s)지만 메모리 대역폭은 약 1.7배(3.35 vs. 2.0
-   TB/s)밖에 되지 않습니다. TTFT와 TPOT이 각각 얼마나 좋아질지 예상하고 확인해 보세요.
-3. **언제 prefill이 이기나.** "시간은 어디에 쓰이나"에서, 64 token 답변일 때 prefill과
-   decode가 같은 시간이 되는 prompt 길이를 찾아보세요. 먼저 위에서 측정한 prompt token당
-   약 0.2 ms와 output token당 약 39 ms로 추정한 다음, 코드의 격자를 바꿔 확인해 보세요.
-   (요청당 16,384 token 제한을 잊지 마세요.)
-:::
 
 ## 이해도 확인
 

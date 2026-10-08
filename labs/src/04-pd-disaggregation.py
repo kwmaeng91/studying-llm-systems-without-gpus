@@ -176,6 +176,13 @@ for name, r in four.items():
 # and replica 1 is the decode replica, running only decode steps. That separation is
 # exactly what keeps TPOT flat.
 #
+# :::{admonition} Try it
+# :class: exercise
+# **Shorter documents.** Change the document length in `mixed_trace` from 3,800 to
+# 1,000 tokens and rerun this head-to-head. Does disaggregation still help TPOT as
+# much? Why?
+# :::
+#
 # ## Tuning each pool separately
 #
 # Separating the phases has a second benefit: each pool can be configured for its
@@ -231,6 +238,15 @@ fig.tight_layout()
 # they mostly care about how quickly the answer starts, or the cluster runs hot,
 # the chunked design uses the hardware more flexibly.
 #
+# :::{admonition} Try it
+# :class: exercise
+# **Goodput.** Suppose your SLO is p99 TTFT < 2 s and p99 TPOT < 60 ms. From this
+# sweep, find the goodput (lecture 2) of the chunked design and of PD 1:1. Once you
+# have read the next section, repeat it on eight GPUs for the chunked design (4
+# replicas) and PD 3:1, adding higher loads to the sweep. Which design wins, and
+# does the answer depend on the number of GPUs?
+# :::
+#
 # ## The ratio matters: eight GPUs
 #
 # With four GPUs, the only possible split was 1:1. Real deployments choose how many
@@ -284,6 +300,13 @@ fig.tight_layout()
 #    seconds. The chunked design degrades gracefully instead, because any GPU can do
 #    any work. A real deployment whose traffic mix changes during the day must
 #    either re-balance its pools or accept periods of imbalance.
+#
+# :::{admonition} Try it
+# :class: exercise
+# **Find the best split.** Add the chat-only workload (`mixed_trace(0.0)`) to the
+# two workloads above and rerun. Which split is best now? Does any PD split beat
+# the chunked design on both TTFT and TPOT? Write down your prediction first.
+# :::
 #
 # ## When there is nothing to protect
 #
@@ -354,26 +377,6 @@ pd.DataFrame({f"{n:,}-token prompt": {name: f"{1e3 * n * kv_per_token / bw:.0f} 
 # | Tuning | one configuration must balance both phases | each pool configured for its phase (chunk size, parallelism, GPU type) |
 # | Extra cost | none | KV-cache transfer; needs fast interconnects |
 # | Best when | short prompts, changing traffic mix, TTFT matters most | long prompts, strict TBT/TPOT targets, stable mix with a well-sized split |
-#
-# ## Exercises
-#
-# :::{admonition} Try it
-# :class: exercise
-# Each exercise asks you to change code above and rerun it. Write down your
-# prediction *before* you run.
-#
-# 1. **Find the best split.** In "The ratio matters", add the chat-only workload
-#    (`mixed_trace(0.0)`) to the two workloads and rerun. Which split is best now?
-#    Does any PD split beat the chunked design on both TTFT and TPOT?
-# 2. **Goodput.** Suppose your SLO is p99 TTFT < 2 s and p99 TPOT < 60 ms. Using the
-#    load sweep on four GPUs, find the goodput (lecture 2) of the chunked design and
-#    of PD 1:1. Then repeat on eight GPUs for the chunked design (4 replicas) and PD
-#    3:1, adding higher loads to the sweep. Which design wins, and does the answer
-#    depend on the number of GPUs?
-# 3. **Shorter documents.** Change the document length in `mixed_trace` from 3,800
-#    to 1,000 tokens and rerun the four-GPU head-to-head. Does disaggregation still
-#    help TPOT as much? Why?
-# :::
 #
 # ## Check your understanding
 #

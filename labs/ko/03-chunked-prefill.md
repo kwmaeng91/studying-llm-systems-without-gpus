@@ -179,6 +179,12 @@ token짜리 chunk가 들어갑니다:
 유닛을 바쁘게 쓰고, decode는 weight를 읽느라 메모리 대역폭을 쓰므로, **둘을 섞은 step은
 양쪽을 다 씁니다**. Chunked prefill은 긴 step 없이 정책 3의 batching 효율을 가져옵니다.
 
+:::{admonition} 직접 해보기
+:class: exercise
+시나리오의 3,800 token짜리 문서를 1,000 token짜리로 바꿔 보세요. `chunk_size=4096`일 때
+멈춤은 얼마나 긴가요? 512일 때는요? chunking이 여전히 값어치를 하나요?
+:::
+
 ## Chunk size 고르기
 
 Token 예산은 knob이고, 한쪽 latency를 다른 쪽과 맞바꿉니다:
@@ -223,6 +229,14 @@ p99 TPOT, 즉 평균 간격 기준으로 가장 느린 1%의 요청입니다. (�
 2 req/s에서는 GPU에 여유가 있어서 아주 작은 chunk(128 제외)로도 따라갈 수 있고, 도착하는
 문서가 적어 멈춤도 덜합니다. **Scheduling은 시스템이 바쁠 때 가장 중요하고**, 하필 그때가
 예산을 고르기 가장 어려운 때이기도 합니다.
+
+:::{admonition} 직접 해보기
+:class: exercise
+1. 섞인 workload에서 문서의 비율을 40%로 올려 보세요. p99 TPOT 기준 최적 `chunk_size`가
+   달라지나요?
+2. SLO가 p99 TTFT < 2 s **그리고** p99 TPOT < 100 ms라고 합시다. 감당할 수 있는 가장 큰
+   `qps`와, 그것을 달성하는 `chunk_size`를 찾아보세요.
+:::
 
 ## TPOT vs. TBT: 평균이 숨기는 것
 
@@ -307,18 +321,6 @@ Chunked prefill은 token 예산으로 매 step의 일을 제한해서, 긴 promp
 Chunked prefill은 interference를 줄이지만 없애지는 못합니다. Prefill과 decode가 여전히 같은
 GPU를 쓰기 때문입니다. {doc}`04-pd-disaggregation`에서는 둘을 서로 다른 GPU에서 돌리는
 대안을 살펴봅니다.
-
-## 연습문제
-
-:::{admonition} 직접 해보기
-:class: exercise
-1. 시나리오에서 3,800 token짜리 문서를 1,000 token짜리로 바꿔 보세요. `chunk_size=4096`일
-   때 멈춤은 얼마나 긴가요? 512일 때는요? chunking이 여전히 값어치를 하나요?
-2. 섞인 workload에서 문서의 비율을 40%로 올려 보세요. p99 TPOT 기준 최적 `chunk_size`가
-   달라지나요?
-3. SLO가 p99 TTFT < 2 s **그리고** p99 TPOT < 100 ms라고 합시다. 감당할 수 있는 가장 큰
-   `qps`와, 그것을 달성하는 `chunk_size`를 찾아보세요.
-:::
 
 ## 이해도 확인
 

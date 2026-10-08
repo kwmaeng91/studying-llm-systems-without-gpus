@@ -193,9 +193,13 @@ fig.tight_layout()
 # You don't have to understand every piece that is happening in this plot, and many things are specific to the
 # particular design of this agent; having a sense
 # that multi-agent systems are complex is probably enough.
-# 
-# Exercise: In the code, try changing the session id (`sessions.session == 4`) into a different number and rerun the code.
-# Admire how different tasks are done with different patterns of sub-agents working together. Which number produces the most interesting plot?
+#
+# :::{admonition} Try it
+# :class: exercise
+# Change the session id in the code above (`sessions.session == 4`) to another
+# number and rerun it. Different tasks are solved with quite different patterns of
+# sub-agents working together. Which one produces the most interesting plot?
+# :::
 #
 # ## Tokens, time, and tools
 #
@@ -244,6 +248,15 @@ fig.tight_layout()
 # answer. So being prefill-heavy does not always mean prefill is going to be the bottleneck (it may or may not).
 # Another thing to consider is the prefix cache (lecture 5) — prefill gets much cheaper with a high prefix cache hit rate.
 #
+# :::{admonition} Try it
+# :class: exercise
+# The recording used two models, so a real deployment of this system is two
+# serving problems rather than one. Using the `model` column, work out how much
+# GPU time each model would need for this workload: count its prompt and output
+# tokens and price them at the ~0.25 ms and ~45 ms per token above. If you had
+# eight GPUs, how would you split them, and which pool would saturate first?
+# :::
+#
 # ## Revisiting prefix caching for agentic workloads
 #
 # Now, let's see how many prefix cache hits this trace gets.
@@ -289,6 +302,13 @@ print(f"ideal prefix-cache hit rate: {ideal_hit_rate(sessions):.1%}")
 # traffic reaching the Kimi chatbot, and about 40% on ordinary conversation.
 # Again, how you designed the agentic system significantly affects the prefix cache hit rate.
 # Since we still do not have a consensus on what the right design for an agentic system is, this number will probably fluctuate in the future until we converge to a decision.
+#
+# :::{admonition} Try it
+# :class: exercise
+# Rerun `lsg.gaia_sessions` with `seed=1` and `num_sessions=48`, then recompute
+# the prompt:output ratio and the ideal hit rate. How stable are they across
+# samples, and what does that say about tuning a system to one trace?
+# :::
 #
 # ## Serving the trace
 #
@@ -337,6 +357,18 @@ pd.DataFrame(agent).round(2)
 # buys a quarter off the task. That is the second half of the earlier sentence at
 # work — a task spends most of its time generating tokens and waiting for tools,
 # and prefix caching touches neither.
+#
+# :::{admonition} Try it
+# :class: exercise
+# 1. **Does the cache survive the tool call?** Rerun the comparison with a small
+#    KV cache (`kv_blocks=4000`, lecture 5) and look at `r.cache`. How many blocks
+#    are evicted, what happens to the hit rate, and do the sessions with the
+#    longest tool waits lose more than the others?
+# 2. **Chunk size for agents.** These runs used the default `chunk_size=512`.
+#    Sweep 512, 2048 and 4096 and report TTFT and task time. Why does a chunk size
+#    that was bad for chat (lecture 3) look better here, and does prefix caching
+#    being on change the answer?
+# :::
 #
 # ## Where a task's time goes
 #
@@ -390,6 +422,13 @@ breakdown.round(1)
 # Again, the twelve parallel tasks in the middle are OWL trying to summarize a very long web-scraped
 # text while not significantly increasing the context length.
 #
+# :::{admonition} Try it
+# :class: exercise
+# Measure how long the join turn (the one whose `dep` lists twelve turns) waits
+# after the *first* of its dependencies finishes. How much of that is queueing
+# behind its own siblings, and what would a scheduler have to know to shorten it?
+# :::
+#
 # ## Summary
 #
 # | | What we saw |
@@ -398,34 +437,6 @@ breakdown.round(1)
 # | Tokens | usually more input tokens than output tokens, but it depends on the agent's role |
 # | Time | decode still dominates (especially when the batch size is low and prefix cache hit rate is high) |
 # | Prefix caching | hit rate is around 60% and improves TTFT by 6×, but the median task time by only about a quarter |
-#
-# ## Exercises
-#
-# :::{admonition} Try it
-# :class: exercise
-#
-# 1. **Does the cache survive the tool call?** Rerun the caching comparison with a
-#    small KV cache (`kv_blocks=4000`, lecture 5) and look at `r.cache`. How many
-#    blocks are evicted, what happens to the hit rate, and do the sessions with the
-#    longest tool waits lose more than the others?
-# 2. **Chunk size for agents.** The runs above used the default `chunk_size=512`.
-#    Sweep 512, 2048, 4096 on the single-replica run and report TTFT and task time.
-#    Why does a chunk size that was bad for chat (lecture 3) look better here, and
-#    does prefix caching being on change the answer?
-# 3. **The cost of a fan-out.** In the single-session timeline, measure how long
-#    the join turn (`dep` with twelve entries) waits after the *first* of its
-#    dependencies finishes. How much of that is queueing behind its own siblings,
-#    and what would a scheduler have to know to shorten it?
-# 4. **Size the two pools.** Using the `model` column, work out how much GPU time
-#    each of the two models would need for this workload: count prompt and output
-#    tokens per model and price them at the ~0.25 ms and ~45 ms per token measured
-#    above. If you had eight GPUs, how would you split them, and which pool would
-#    saturate first? Then check your reasoning against what `lsg.gaia_sessions`
-#    shows about which roles sit on the critical path.
-# 5. **A different sample.** Rerun the characterisation with `seed=1` and
-#    `num_sessions=48`. How stable are the prompt:output ratio and the ideal hit
-#    rate? What does that say about tuning a system to one trace?
-# :::
 #
 # ## Check your understanding
 #
