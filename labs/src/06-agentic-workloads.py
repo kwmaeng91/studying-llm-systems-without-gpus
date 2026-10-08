@@ -193,6 +193,9 @@ fig.tight_layout()
 # You don't have to understand every piece that is happening in this plot, and many things are specific to the
 # particular design of this agent; having a sense
 # that multi-agent systems are complex is probably enough.
+# 
+# Exercise: In the code, try changing the session id (`sessions.session == 4`) into a different number and rerun the code.
+# Admire how different tasks are done with different patterns of sub-agents working together. Which number produces the most interesting plot?
 #
 # ## Tokens, time, and tools
 #
