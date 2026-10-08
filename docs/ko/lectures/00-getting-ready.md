@@ -11,8 +11,8 @@
 ### 모델
 
 Token
-: LLM이 읽고 쓰는 텍스트의 단위입니다. 단어, 단어의 일부, 문장부호일 수 있습니다.
-  "Unbelievable!"은 `Un`, `believable`, `!` 세 token일 수 있습니다. 영어에서 token 하나는
+: LLM이 읽고 쓰는 텍스트의 단위입니다. 단어, 단어의 일부, 문장부호일 수 있습니다. 예를 들어
+  "Unbelievable!"은 `Un`, `believable`, `!` 와 같이 세 token으로 찢어질 수 있습니다. 영어에서 token 하나는
   평균적으로 단어의 약 3/4입니다. 이 강의의 모든 길이와 속도는 token으로 셉니다.
 
 Tokenizer
@@ -20,7 +20,7 @@ Tokenizer
   아는 모든 token의 집합을 *vocabulary*라고 하며, Qwen2.5는 약 152,000개입니다.
 
 Large language model (LLM)
-: Token의 나열이 주어지면 가능한 모든 다음 token에 대한 확률을 예측하는 신경망입니다.
+: Token의 나열이 주어지면 다음 token을 예측하는 신경망입니다.
   요즘 LLM은 *transformer*입니다(아래 참고).
 
 Parameter (weight)
@@ -74,12 +74,12 @@ GPU
 
 FLOP과 FLOP/s (FLOPs)
 : FLOP은 부동소수점 연산 한 번(덧셈이나 곱셈)입니다. FLOP/s(간단히 FLOPs라고도 씁니다)는
-  초당 몇 번의 FLOP을 할 수 있는지를 말합니다. A100의 최대치는 312 *테라*FLOP/s
+  초당 몇 번의 FLOP을 할 수 있는지를 말합니다. A100의 최대치는 312 TFLOP/s
   (312 × 10¹²)입니다.
 
 HBM과 메모리 대역폭
 : HBM(high-bandwidth memory)은 GPU의 주 메모리로(적어도 A100이나 H100처럼 비싼
-  것들에서는요), weight와 KV cache를 담습니다. 초당 바이트로 재는 *대역폭*은 HBM과 연산
+  GPU들은 HBM을 씁니다), weight와 KV cache를 담습니다. 초당 바이트로 재는 *대역폭*은 HBM과 연산
   유닛 사이에서 데이터가 얼마나 빨리 움직일 수 있는지를 말합니다.
 
 Compute-bound와 memory-bound
@@ -87,8 +87,8 @@ Compute-bound와 memory-bound
   걸리면 *memory-bound*입니다.
 
 Tensor parallelism (TP)
-: 모든 weight 행렬을 여러 GPU에 쪼개서 매 forward pass의 일(과 메모리)을 나누는
-  것입니다. "TP2"는 GPU 두 장을 뜻합니다.
+: 모든 weight 행렬을 여러 GPU에 쪼개서 매 forward pass의 일(과 메모리 사용량)을 나누는
+  방법을 뜻합니다. "TP2"는 GPU 두 장이 일을 나눠 한다는 뜻입니다.
 
 ### Serving과 지표
 
@@ -130,12 +130,12 @@ Transformer가 어떻게 동작하는지 대략은 알고 있어야 합니다. �
 자료들을 소개합니다(AI가 고른 게 아니라 제가 개인적으로 좋아하는 것들입니다!).
 
 - [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) (Jay Alammar):
-  제가 가장 좋아하는 자료 중 하나지만, *원래의* transformer 구조를 설명한다는 점에 유의하세요.
+  제가 가장 좋아하는 자료 중 하나지만, *오리지널* transformer 구조를 설명한다는 점에 유의하세요.
   요즘 transformer(*decoder-only* transformer)는 다르게 생겼고, 그건 아래 자료에 나옵니다.
 - [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/) (Jay Alammar):
-  decoder-only transformer와 token 단위 생성.
+  decoder-only transformer와 token 생성.
 - [Transformer Explainer](https://poloclub.github.io/transformer-explainer/) (Polo Club,
-  Georgia Tech): 브라우저에서 GPT-2가 실제로 도는 것을 보여 주는 대화형 시각화. Prompt를
+  Georgia Tech): 브라우저에서 GPT-2가 실제로 도는 것을 보여 주는 웹사이트. Prompt를
   입력하고 그것이 모든 layer를 통과하는 과정을 지켜보세요.
 
 ## KV cache
