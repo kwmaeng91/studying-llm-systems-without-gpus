@@ -7,11 +7,11 @@
 # ---
 
 # %% [markdown]
-# # [TEMP] 7. Scheduling Agentic Workloads
+# # [TEMP] 8. Scheduling Agentic Workloads
 #
 # By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
 #
-# {doc}`06-agentic-workloads` followed a single agent task through one replica. A
+# {doc}`07-agentic-workloads-2` followed a single agent task through one replica. A
 # serving system does not get to do that: it carries many tasks at once, and every
 # knob we met in lectures 2–5 has to be set for traffic that looks nothing like
 # chat. This lecture puts the same recorded GAIA traces on a cluster and turns
@@ -27,7 +27,7 @@
 # :::{note}
 # The runs here are larger than in earlier labs: 100 recorded tasks against up to
 # eight GPUs, with a wider runtime-predictor grid (`max_tokens=65536`, shared with
-# lecture 6). Expect the whole notebook to take several minutes, and the first run
+# lecture 7). Expect the whole notebook to take several minutes, and the first run
 # of a new (model, GPU, parallelism) combination to spend about a minute fitting
 # its predictor.
 # :::
@@ -255,7 +255,7 @@ pd.DataFrame(sched).T.round(2)
 #
 # What none of them changes is the total execution time, because queue order
 # redistributes waiting rather than creating GPU capacity. And on the lightly
-# loaded replica of {doc}`06-agentic-workloads` the same policies change the task
+# loaded replica of {doc}`07-agentic-workloads-2` the same policies change the task
 # time by a fraction of a percent: there is almost nothing in the queue to reorder,
 # and the critical path is the session's own chain of decodes and tool calls.
 #

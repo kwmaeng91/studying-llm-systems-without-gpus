@@ -297,7 +297,7 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # the history and throws the prefix away), and clients trim old turns to fit a
 # context limit (which changes the *start* of the prompt, the worst place to change
 # anything). Read the KV cache hit rates below as the shape of the effect rather than a
-# number to expect; lecture 6 measures 60% on a recorded agent workload.
+# number to expect; lecture 7 measures 60% on a recorded agent workload.
 
 # %%
 rng = np.random.default_rng(0)

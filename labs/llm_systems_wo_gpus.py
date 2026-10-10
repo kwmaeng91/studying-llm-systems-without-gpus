@@ -408,7 +408,8 @@ GAIA_SUBDIR = "GAIATrace"
 
 # Which model served a request, recognised from the first token ids of its prompt
 # (the two systems in the recording used different models for different roles).
-GAIA_MODELS = {"[200006, 17360": "gpt-oss-120b", "[200006, 77944": "gpt-4o"}
+GAIA_MODELS = {"owl": {"[200006, 17360": "gpt-oss-120b", "[200006, 77944": "gpt-4o"},
+               "mirothinker": {"[151644, 8948": "MiroThinker", "[200006, 1428": "gpt-4o-mini"}}
 
 # Which agent inside the system issued a request (OWL's roles).
 GAIA_ROLES = {0: "plan", 1: "coordinate", 2: "web search", 3: "code", 4: "web summarize",
@@ -423,33 +424,76 @@ def gaia_dir() -> Path:
     return d
 
 
-def _gaia_tool_latency(root: Path) -> dict:
+def _gaia_tool_latency(root: Path, agent: str) -> dict:
     """{(session file stem, turn id): seconds} from the measured tool benchmark.
 
-    Each tool was re-run several times outside the agent; a turn's latency is the
-    mean per tool call, summed over the calls that turn made (the agent awaits
-    them one after another).
+    Each tool was re-run several times outside the agent. For OWL a turn's latency
+    is the mean per tool call, summed over the calls that turn made (the agent
+    awaits them one after another); MiroThinker issues its calls in parallel, so
+    its turn takes the slowest of them.
     """
+    key, seconds_col, combine = (("source_file", "request_idx"), "effective_elapsed", "sum")
+    if agent == "mirothinker":
+        key, seconds_col, combine = (("filename", "turn"), "runtime_s", "max")
     per_call: dict = {}
     for f in sorted((root / "raw" / "tool").glob("*.csv")):
         with open(f, encoding="utf-8", newline="") as fh:
             for row in csv.DictReader(fh):
                 try:
-                    seconds = float(row["effective_elapsed"])
+                    seconds = float(row[seconds_col])
                 except (KeyError, TypeError, ValueError):
                     continue
                 if seconds > 0:
                     per_call.setdefault(
-                        (row["source_file"], int(row["request_idx"]), row.get("args_json", "")),
+                        (row[key[0]], int(row[key[1]]), row.get("args_json", "")),
                         []).append(seconds)
     out: dict = {}
     for (stem, turn, _args), values in per_call.items():
-        out[(stem, turn)] = out.get((stem, turn), 0.0) + sum(values) / len(values)
+        mean = sum(values) / len(values)
+        out[(stem, turn)] = (max(out.get((stem, turn), 0.0), mean) if combine == "max"
+                             else out.get((stem, turn), 0.0) + mean)
     return out
 
 
-def gaia_sessions(num_sessions: int = 20, max_tokens: int | None = None, seed: int = 0,
-                  agent: str = "owl") -> pd.DataFrame:
+def _gaia_owl_session(d, stem, tool_latency):
+    """One OWL session file as (roles, deps, prefill, decode, tool times, token ids)."""
+    deps = [json.loads(x) if isinstance(x, str) else [] for x in d.get("dep", "[]")]
+    return {
+        "role": [GAIA_ROLES.get(int(a), "other") for a in d["agent"]] if "agent" in d else "other",
+        "dep": deps,
+        "num_prefill_tokens": d["num_prefill_tokens"].astype(int),
+        "num_decode_tokens": d["num_decode_tokens"].astype(int),
+        "tool_time": [max([tool_latency.get((stem, int(i)), 0.0) for i in dep] or [0.0])
+                      for dep in deps],
+        "token_ids": d["tokens"],
+    }
+
+
+def _gaia_miro_session(d, stem, tool_latency):
+    """One MiroThinker session file. The agent is a single ReAct-style loop whose
+    turns follow one another, plus a summariser called on long tool output; a
+    turn's tool time is the one measured for the main turn before it."""
+    d = d[d["row_kind"] != "summarizer_placeholder"]
+    d = d[(d["num_prefill_tokens"] >= 0) & (d["num_decode_tokens"] > 0)]
+    tools, waits, pending, main_index = f"{stem}_tools.csv", [], None, 0
+    for kind in d["row_kind"]:
+        waits.append(tool_latency.get((tools, pending), 0.0) if pending is not None else 0.0)
+        pending = None
+        if kind == "main":
+            pending, main_index = main_index, main_index + 1
+    return {
+        "role": list(d["row_kind"]),
+        "dep": [[] if i == 0 else [i - 1] for i in range(len(d))],
+        "num_prefill_tokens": d["num_prefill_tokens"].astype(int),
+        "num_decode_tokens": d["num_decode_tokens"].astype(int),
+        "tool_time": waits,
+        "token_ids": d["tokens"],
+    }
+
+
+def gaia_sessions(num_sessions: int = 20,
+                  max_tokens: int | None = LITE_GRID["prediction_max_tokens_per_request"],
+                  seed: int = 0, agent: str = "owl") -> pd.DataFrame:
     """Load recorded agent sessions as one DataFrame, one row per LLM request.
 
     Columns: ``session``, ``turn``, ``role`` (which agent in the system issued it),
@@ -457,43 +501,43 @@ def gaia_sessions(num_sessions: int = 20, max_tokens: int | None = None, seed: i
     for), ``num_prefill_tokens``, ``num_decode_tokens``, ``tool_time`` (s), and
     ``token_ids`` (prompt + output, decodable with :func:`decode`).
 
+    ``agent`` selects the recorded system: ``"owl"`` (multi-agent) or
+    ``"mirothinker"`` (a single ReAct-style agent plus a summariser).
+
     Sessions whose longest request exceeds ``max_tokens`` are skipped, because the
     course's prediction grid only covers requests up to
     ``LITE_GRID["prediction_max_tokens_per_request"]`` tokens (the default here).
+    Pass ``max_tokens=None`` to keep every session, which is useful for looking at
+    a trace without simulating it.
     """
-    if agent != "owl":
-        raise ValueError("only the OWL traces are packaged for the course (agent='owl')")
-    if max_tokens is None:
-        max_tokens = LITE_GRID["prediction_max_tokens_per_request"]
+    if agent not in ("owl", "mirothinker"):
+        raise ValueError("agent must be 'owl' or 'mirothinker'")
     root = gaia_dir() / agent
     files = [f for f in sorted((root / "traces" / "session_traces").glob("*.csv"))
              if not f.stem.endswith("_tools")]
     random.Random(seed).shuffle(files)
-    tool_latency = _gaia_tool_latency(root)
+    tool_latency = _gaia_tool_latency(root, agent)
+    read_session = _gaia_owl_session if agent == "owl" else _gaia_miro_session
 
     frames = []
     for f in files:
         if len(frames) >= num_sessions:
             break
         d = pd.read_csv(f).dropna(subset=["num_prefill_tokens", "num_decode_tokens"])
-        if len(d) == 0 or (d["num_prefill_tokens"] + d["num_decode_tokens"]).max() > max_tokens:
+        if len(d) == 0:
             continue
-        d = d.reset_index(drop=True)
-        deps = [json.loads(x) if isinstance(x, str) else [] for x in d.get("dep", "[]")]
+        cols = read_session(d.reset_index(drop=True), f.stem, tool_latency)
+        n = len(cols["num_prefill_tokens"])
+        if n == 0 or (max_tokens is not None and
+                      (cols["num_prefill_tokens"] + cols["num_decode_tokens"]).max() > max_tokens):
+            continue
         frames.append(pd.DataFrame({
             "session": len(frames),
-            "turn": range(len(d)),
-            "role": [GAIA_ROLES.get(int(a), "other") for a in d["agent"]]
-                    if "agent" in d else "other",
-            "model": [next((m for p, m in GAIA_MODELS.items() if t.startswith(p)), "unknown")
-                      for t in d["tokens"]],
-            "dep": deps,
-            "num_prefill_tokens": d["num_prefill_tokens"].astype(int),
-            "num_decode_tokens": d["num_decode_tokens"].astype(int),
-            "tool_time": [max([tool_latency.get((f.stem, int(i)), 0.0) for i in dep] or [0.0])
-                          for dep in deps],
-            "token_ids": d["tokens"],
-        }))
+            "turn": range(n),
+            "model": [next((m for p, m in GAIA_MODELS[agent].items() if t.startswith(p)), "unknown")
+                      for t in cols["token_ids"]],
+            **cols,
+        }).reset_index(drop=True))
     if len(frames) < num_sessions:
         raise ValueError(f"only {len(frames)} sessions fit in {max_tokens:,} tokens per request")
     return pd.concat(frames, ignore_index=True)

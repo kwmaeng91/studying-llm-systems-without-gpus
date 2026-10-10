@@ -52,12 +52,15 @@
   - 요청 사이의 KV 재사용, prompt 구성, eviction
 * - 6
   - {doc}`lectures/06-agentic-workloads`
-  - 실제 agent trace: session, tool call, task 단위 latency
+  - 실제 agent trace: session, role, tool call, single agent와 multi-agent 비교
+* - 7
+  - {doc}`lectures/07-agentic-workloads-2`
+  - 그 trace를 서빙하기: prefix 재사용, task 단위 latency, task 시간의 행방
 ```
 
 :::{note}
-7강 (Scheduling Agentic Workloads)은 아직 초안이라 영어로만 제공됩니다:
-{doc}`../lectures/07-scheduling-agentic-workloads`.
+8강 (Scheduling Agentic Workloads)은 아직 초안이라 영어로만 제공됩니다:
+{doc}`../lectures/08-scheduling-agentic-workloads`.
 :::
 
 ```{toctree}
@@ -81,6 +84,7 @@ lectures/03-chunked-prefill
 lectures/04-pd-disaggregation
 lectures/05-prefix-caching
 lectures/06-agentic-workloads
+lectures/07-agentic-workloads-2
 ```
 
 ```{toctree}

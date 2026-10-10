@@ -1,4 +1,4 @@
-# 6. Agentic Workload
+# 6. Agentic Workload (1): Workload는 어떻게 생겼나
 
 글쓴이: [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)), [Claude Code](https://claude.com/claude-code) 🤖
 
@@ -23,8 +23,8 @@ GAIA ([Mialon et al., ICLR '24](https://openreview.net/forum?id=fibxvahvs3)) 과
 풀리는 질문들의 benchmark입니다. 이 corpus에는 multi-agent 시스템인
 [OWL](https://github.com/camel-ai/owl)
 ([Hu et al., NeurIPS '25](https://arxiv.org/abs/2505.23885))과, 단일 agent에 요약기를 붙인
-[MiroThinker](https://github.com/MiroMindAI/MiroThinker)가 들어 있고, 여기서는 OWL을
-씁니다. 각 요청에는 prompt와 output의 token id, 그 요청이 의존한 turn들, 그리고 따로 측정한
+[MiroThinker](https://github.com/MiroMindAI/MiroThinker)가 들어 있고, 여기서는 둘 다
+봅니다. 각 요청에는 prompt와 output의 token id, 그 요청이 의존한 turn들, 그리고 따로 측정한
 tool latency가 들어 있습니다. Trace는 simulator와 함께 배포되므로, `lsg.setup()`을 하고 나면
 이미 여러분 디스크에 있습니다. 참고로 GAIATrace를 더 많은 설정과 데이터셋으로 확장하는
 작업도 진행 중입니다!
@@ -33,10 +33,12 @@ tool latency가 들어 있습니다. Trace는 simulator와 함께 배포되므�
 - Agent session의 구조를 설명할 수 있다: turn, 역할, 의존 관계, fan-out, tool 시간.
 - Agent 트래픽이 token 수로는 prompt 중심인데 시간으로는 decode 중심인 이유를 설명할 수
   있다.
-- 실제 agent trace에서 KV cache hit rate를 측정하고, hit가 어디서 오는지 설명할 수 있다.
-- Task 단위 latency를 따져 볼 수 있다. 임계 경로가 무엇이고, serving system의 어떤 knob이
-  그것을 줄일 수 있고 없는지.
+- Agent의 prompt token이 어디서 오는지, 그리고 prompt가 왜 자라는지 설명할 수 있다.
+- 단일 agent 시스템과 multi-agent 시스템이 만들어 내는 트래픽이 어떻게 다른지 말할 수 있다.
 :::
+
+Agent 트래픽을 다루는 두 강의 중 첫 번째입니다. 여기서는 workload가 *무엇인지*를 보고,
+{doc}`07-agentic-workloads-2`에서 그것을 GPU에 올립니다.
 <!-- cell -->
 ## 준비
 <!-- cell -->
@@ -92,8 +94,31 @@ prefix cache에 필요하다고 말한 조건 그 자체입니다.
 
 ## Agent session의 모양
 
-Session 하나를 통째로 봅시다. Prompt가 어떻게 자라는지, 각 turn을 어떤 역할이 내는지,
-그리고 tool 시간이 어디로 가는지.
+기록된 두 시스템은 서로 닮지 않았으니, 더 단순한 쪽부터 봅시다.
+MiroThinker는 ReAct 스타일 루프를 도는 단일 agent입니다. 생각하고, tool을 부르고, 결과를
+읽고, 다시 생각하죠. 여기에 도우미가 하나 붙습니다. Tool이 아주 긴 것(예: 스크랩한 웹
+페이지)을 돌려주면, 그것이 agent의 context에 들어가기 전에 별도의 **요약기(summarizer)**
+모델이 먼저 압축합니다.
+
+기록된 MiroThinker 과제 24개를 불러와서 가장 긴 것을 그립니다. (이 session들에는 이 강의의
+runtime predictor가 다루는 범위보다 훨씬 긴 요청이 들어 있어서 `max_tokens=None`을 줍니다.
+지금은 simulation이 아니라 trace를 들여다보는 것뿐이니까요.)
+<!-- cell -->
+Agent 자신의 요청(`main`)은 계단처럼 올라갑니다. 매 turn은 이전 turn에 tool 결과를 더한
+것이라서 prompt는 자라기만 합니다. 처음에 약 3,100 token이던 것이 서른네 turn 뒤에는
+22,000 token이 됩니다. Agent serving을 다루는 논문들이 보통 보고하는 모양이 이것이고,
+따지기도 쉽습니다. 대화 하나가 단조롭게 자라고, 한 번에 하나의 요청만 떠 있습니다.
+
+`summarizer` 요청은 이 trace가 잡아냈지만 공개된 다른 trace들에는 대개 없는 부분이고,
+대화를 전혀 따라가지 않습니다. 각 호출은 긴 스크랩 페이지를 더 싼 모델에 넘기고 수백 token을
+돌려받으며, main agent가 보는 것은 그 결과입니다. Main agent 자신의 prompt가 이 정도로
+완만하게만 자라는 이유도 여기 있습니다. 긴 문서를 요약기가 대신 흡수해 주는 것이죠.
+이 과제에서 요청의 3분의 1이 요약기 호출이므로, "prefill이 단조롭게 자란다"는 말은 serving
+system이 실제로 받는 것의 일부만 설명합니다.
+
+이제 multi-agent 시스템을 봅시다. 여기에는 자라날 단일 대화라는 것 자체가 없습니다.
+OWL은 과제를 planner, coordinator, 그리고 여러 worker에게 나누고, 각자가 자기 context를
+가집니다.
 <!-- cell -->
 각 점은 sub-agent(plan, coordinate, web search, ...)가 낸 요청 하나이고, agent가 tool을 쓰면
 막대가 그 tool의 실행 시간을 보여 줍니다.
@@ -117,14 +142,20 @@ Prompt 길이(각 점의 y축)는 몇 개의 turn에 걸쳐 자라다가 뚝 떨
 
 ## Token, 시간, 그리고 tool
 
-이제 sub-agent별로 prompt(입력)와 output token을 봅시다:
+이제 표본 전체를, 두 시스템을 나란히 놓고 봅시다. 이 트래픽이 serving system에 무엇을 하는지는
+세 가지 숫자가 결정합니다. Token이 얼마나 들어가고 나오는지, 각 종류의 token이 얼마나
+걸리는지, 그리고 tool이 도는 동안 아무것도 실행되지 않는 시간이 얼마나 되는지.
 <!-- cell -->
-역할에 따라 sub-agent마다 다른 양상을 보이는 것을 볼 수 있습니다. coordinator는 prompt
-길이는 제각각이지만 output 길이가 비슷한 뚜렷한 무리를 이루고, 웹 검색 agent는 prompt
-길이는 다양한데 output 길이는 비슷하며, 웹 요약 agent는 prompt가 길고 output은 상대적으로
-짧습니다. 각 sub-agent가 무슨 일을 하는지 생각해 보면 납득이 갑니다.
-전체적으로는 prompt(입력)가 output보다 token 수로 약 11:1 정도 길어서, prefill 중심의
-트래픽입니다.
+두 시스템 모두 **prefill 중심**이고, 단일 agent 쪽이 훨씬 더 그렇습니다. Output token 하나당
+prompt token이 OWL은 11개, MiroThinker는 30개입니다. 이유는 산점도에 보입니다. OWL의
+sub-agent들은 뚜렷한 무리를 이룹니다. Coordinator는 worker id로 답하고, 웹 검색 worker는
+수십 token짜리 tool 호출을 내놓고, 요약기는 페이지 조각을 읽습니다. 반면 MiroThinker에는
+둘뿐입니다. 대화를 따라 prompt가 자라는 main agent와, 수만 token짜리 prompt에 짧은 답을
+내놓으며 오른쪽 멀리 자리 잡은 요약기.
+
+Tool의 양상도 다릅니다. MiroThinker는 turn의 3분의 2가 tool을 기다리는 반면 OWL은 3분의
+1이고, 기다리는 시간도 중앙값 기준 네 배(1.5초 대 0.4초) 깁니다. 그동안 두 시스템 모두 GPU
+근처에도 가지 않습니다.
 
 다만 prompt token과 output token의 비용은 다릅니다. 우리가 simulation하는 replica에서
 prompt token 하나는 약 0.25 ms의 GPU 시간이 드는 반면, output token 하나는 약 45 ms, 거의
@@ -132,115 +163,31 @@ prompt token 하나는 약 0.25 ms의 GPU 시간이 드는 반면, output token 
 token인 turn은 prompt에 2초 남짓, 답변에 8초를 씁니다. 그러니 prefill 중심이라고 해서 늘
 prefill이 병목이 되는 것은 아닙니다(그럴 수도, 아닐 수도 있습니다).
 또 하나 고려할 것은 prefix cache(5강)입니다. Prefix cache hit rate가 높으면 prefill은 훨씬
-싸집니다.
+싸지는데, 다음 강의가 바로 거기서 시작합니다.
 
 :::{admonition} 직접 해보기
 :class: exercise
 기록 당시에는 모델을 두 개 썼으므로, 이 시스템의 실제 배포는 하나가 아니라 두 개의 serving
 문제입니다. `model` 열을 이용해 각 모델이 이 workload에서 얼마나 많은 GPU 시간을 필요로
 할지 계산해 보세요. 모델별로 prompt와 output token을 세고, 위의 token당 약 0.25 ms와 약
-45 ms로 값을 매기면 됩니다. GPU가 여덟 장이라면 어떻게 나누겠습니까? 그리고 어느 pool이
-먼저 포화될까요?
-:::
-
-## Agentic workload에서 prefix caching 다시 보기
-
-이제 이 trace가 prefix cache hit를 얼마나 얻는지 봅시다.
-이런 agentic trace는 prefix를 많이 재사용할까요?
-먼저, 완벽하고 무한히 큰 prefix cache라면 어떻게 될지를 5강의 규칙 그대로 계산해 봅니다.
-꽉 찬 16 token block마다 사슬 해시를 구하고, 각 prompt의 앞쪽 block 중 몇 개가 전에 본
-것인지 셉니다.
-<!-- cell -->
-이 workload에서 전체 prompt token의 약 60%는 전에 계산된 적이 있어 prefix caching의 혜택을
-받을 수 있고, 이 숫자는 GAIATrace 논문
-([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725))과 대체로 들어맞습니다.
-이 값이 높은 이유는 system prompt가 길고, sub-agent들이 자기 과거 대화 기록을 자주 들여다보기
-때문입니다. 5강의 multi-turn chat과 비슷하죠.
-다만 이는 다른 논문들(예: Agentic AI Workload Characteristics,
-[Yuan et al., IISWC '26](https://arxiv.org/abs/2605.26297))이 보고한 값보다는 훨씬 낮습니다.
-그쪽은 87--99% 정도였습니다.
-이는 OWL의 설계 때문입니다. multi-agent 시스템인 OWL은 여러 sub-agent를 돌리는데, 서로 다른
-agent 사이에는 prompt 공유가 제한적입니다.
-
-그래도 이 값은 Mooncake
-([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079))가 보고한 값보다는 (조금) 높습니다.
-Mooncake는 Kimi chatbot에 오는 tool/agent 성격 트래픽에서 약 59%, 일반 대화에서 약 40%였습니다.
-다시 말하지만, agentic 시스템을 어떻게 설계했느냐가 prefix cache hit rate를 크게 좌우합니다.
-agentic 시스템의 올바른 설계가 무엇인지 아직 합의가 없으므로, 이 숫자는 합의가 모일 때까지
-앞으로도 계속 흔들릴 것입니다.
-
-:::{admonition} 직접 해보기
-:class: exercise
-`lsg.gaia_sessions`를 `seed=1`, `num_sessions=48`로 다시 돌리고 prompt:output 비율과
-이상적인 hit rate를 다시 계산해 보세요. 표본이 바뀌어도 얼마나 안정적인가요? 이는 하나의
-trace에 맞춰 시스템을 튜닝하는 것에 대해 무엇을 말해 주나요?
-:::
-
-## Trace를 서비스해 보기
-
-이제 trace를 simulator에 넣어 봅시다.
-여기서는 간단히, 어떤 sub-agent가 냈든 기록 당시 어떤 모델이 처리했든, 모든 요청이 A100 두
-장 위의 Qwen2.5-32B replica 하나로 간다고 가정합니다. 3–5강과 같은 설정이고, prefix cache는
-그 replica의 GPU 메모리에 있습니다.
-Tool latency는 trace에서 가져오므로, turn은 실제 tool이 걸린 만큼 정확히 기다립니다.
-`lsg.gaia_trace`가 token id와 의존 그래프를 포함해 simulator 형식으로 trace를 써 주고,
-그래서 turn *k+1*은 turn *k*가 끝나고 그 tool 호출이 돌아온 뒤에야 풀립니다. 새 과제는 10초에
-하나씩 replica 하나로 보냅니다.
-
-사용자는 과제 전체를 기다리므로 **task 완료 시간**을 잽니다. Session의 첫 요청이 도착한
-순간부터 마지막 요청이 끝나는 순간까지, tool 시간까지 포함해서요.
-<!-- cell -->
-측정된 KV cache hit rate 60%는 손으로 계산한 이상치와 1 퍼센트포인트 안에서 맞아떨어집니다.
-실행 중에 block이 evict되기는 합니다(`r.cache`가 수만 개를 보고합니다). 다만 이 replica는
-충분히 커서, 잃는 것은 대부분 아무도 다시 찾지 않는 block입니다. Prefill 작업량은 60%
-줄고, TTFT는 6배 좋아지며, 중앙값 과제는 약 1분 30초 빨리 끝납니다.
-
-과제 단위의 이득은 요청 단위의 이득보다 훨씬 작습니다. TTFT가 6배 좋아져도 과제는 4분의 1만
-줄어듭니다. 앞 문장의 뒷부분이 여기서 작동합니다. 과제는 시간의 대부분을 token 생성과 tool
-대기에 쓰는데, prefix caching은 둘 중 어느 것도 건드리지 못합니다.
-
-:::{admonition} 직접 해보기
-:class: exercise
-1. **Cache가 tool 호출을 견디나?** 이 비교를 작은 KV cache(`kv_blocks=4000`, 5강)로 다시
-   돌리고 `r.cache`를 보세요. Block이 몇 개나 evict되고 hit rate는 어떻게 되나요? 그리고
-   tool을 가장 오래 기다린 session들이 다른 것보다 더 많이 잃나요?
-2. **Agent를 위한 chunk size.** 위 실행들은 기본값 `chunk_size=512`를 썼습니다. 512,
-   2048, 4096을 쓸어 보고 TTFT와 과제 시간을 보고하세요. 채팅에서는 나빴던 chunk
-   size(3강)가 여기서는 왜 더 나아 보이고, prefix caching을 켜면 답이 달라지나요?
-:::
-
-## 과제의 시간은 어디로 가나
-
-Session을 뜯어 봅시다. 각 turn의 막대는 도착부터 첫 token까지(기다림과 prefill), 그다음
-마지막 token까지(decode)를 나타냅니다. Turn 사이의 빈 구간은 tool 호출과 agent 자신의
-처리입니다.
-<!-- cell -->
-첫째, 과제가 질의들의 사슬로 실행되는 것을 볼 수 있습니다. 대체로 순차적이지만 가끔
-병렬이죠. 많은 agentic 시스템이 대체로 순차적이고, 더 병렬적인 구조를 넣으려는 시도들이
-연구되고 있습니다(예: LATS,
-[Zhou et al., ICML '24](https://arxiv.org/abs/2310.04406)).
-둘째, 파란색(decode) 부분이 지배적인 것을 볼 수 있습니다. Prefix cache hit rate가 높고,
-지금은 GPU에 다른 경쟁이 없기 때문입니다.
-Prefix cache hit rate가 낮고 같은 GPU에 다른 요청이 많다면 막대의 모양은 달라질 것입니다
-(2강에서 배웠듯, prefill은 decode처럼 깔끔하게 batching되지 않으니까요).
-다시 말하지만, 가운데의 병렬 과제 열두 개는 OWL이 아주 긴 웹 스크랩 텍스트를, context 길이를
-크게 늘리지 않으면서 요약하려는 장면입니다.
-
-:::{admonition} 직접 해보기
-:class: exercise
-열두 개를 기다리는 join turn(`dep`에 항목이 열두 개인 turn)이 *첫* 의존 turn이 끝난 뒤
-얼마나 더 기다리는지 재 보세요. 그중 얼마가 자기 형제들 뒤에 줄 서서 기다린 시간이고,
-그것을 줄이려면 scheduler가 무엇을 알아야 할까요?
+45 ms로 값을 매기면 됩니다. GPU가 여덟 장이라면 OWL에는 어떻게 나누고, MiroThinker에는
+어떻게 나누겠습니까? 각 경우 어느 pool이 먼저 포화될까요?
 :::
 
 ## 정리
 
 | | 무엇을 보았나 |
 |---|---|
-| 과제의 모양 | agentic 과제는 대체로 순차적인 요청들의 연속이지만 가끔 병렬이다 |
-| Token | 보통 input token이 output token보다 많지만, agent의 역할에 따라 다르다 |
-| 시간 | 여전히 decode가 지배한다 (특히 batch size가 작고 prefix cache hit rate가 높을 때) |
-| Prefix caching | hit rate는 약 60%이고 TTFT를 6배 개선하지만, 중앙값 과제 시간은 4분의 1 정도만 줄인다 |
+| 과제는 요청이 아니다 | GAIA 과제 하나가 서로 의존하는 수십 개의 LLM 요청이고, 사용자는 그 사슬 전체를 기다린다 |
+| 단일 agent | 자라기만 하는 대화 하나, 즉 깔끔한 prompt 길이의 계단. 여기에 대화를 전혀 따라가지 않는 요약기 요청이 섞인다 |
+| Multi-agent | 단일 대화가 없다. Worker마다 자기 대화를 시작하고, fan-out은 한순간에 열두 개의 요청을 풀어놓는다 |
+| Token | 둘 다 prefill 중심이고, OWL은 11:1, MiroThinker는 30:1 |
+| 시간 | output token 하나는 여전히 prompt token의 약 200배이므로, prefill 중심이라고 prefill이 병목인 것은 아니다 |
+| Tool | OWL은 turn의 3분의 1, MiroThinker는 3분의 2가 tool을 기다리고, 중앙값은 각각 0.4초와 1.5초 |
+
+{doc}`07-agentic-workloads-2`에서는 이 trace들을 GPU에 올립니다. 그 많은 prompt 텍스트 중
+얼마나가 재사용 가능한지, 여기서 prefix caching이 얼마나 값어치를 하는지, 그리고 과제의
+시간이 실제로 어디로 가는지.
 
 ## 이해도 확인
 

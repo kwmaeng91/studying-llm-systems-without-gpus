@@ -249,7 +249,7 @@ Prefix cache가 어떻게 동작하는지 simulation하려면 *token id*가 필�
 길이가 제각각이고, 사용자가 메시지를 수정하거나 다시 생성하면(기록이 바뀌어 prefix가 날아
 갑니다), client가 context 한도에 맞추려고 오래된 turn을 잘라 냅니다(prompt의 *앞부분*이
 바뀌는, 가장 나쁜 변경입니다). 아래의 KV cache hit rate는 기대할 숫자가 아니라 효과의 모양으로
-읽으세요. 6강에서는 기록된 agent workload에서 60%를 측정합니다.
+읽으세요. 7강에서는 기록된 agent workload에서 60%를 측정합니다.
 <!-- cell -->
 Turn 0은 200 token을 prefill하고, 이후 모든 turn은 앞 turn보다 400 token을 더
 prefill합니다. 사용자의 새 메시지와 assistant의 직전 답변이죠. 새로운 것은 그 400개뿐이고,

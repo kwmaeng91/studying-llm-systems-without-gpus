@@ -7,7 +7,7 @@
 # ---
 
 # %% [markdown]
-# # 6. Agentic Workloads
+# # 6. Agentic Workloads (1): What the Workload Looks Like
 #
 # By [Kiwan Maeng](https://kiwanmaeng.com) ([LinkedIn](https://www.linkedin.com/in/kiwan-maeng-23b825165)) and [Claude Code](https://claude.com/claude-code) 🤖
 #
@@ -34,7 +34,7 @@
 # corpus covers [OWL](https://github.com/camel-ai/owl)
 # ([Hu et al., NeurIPS '25](https://arxiv.org/abs/2505.23885)), a multi-agent system,
 # and [MiroThinker](https://github.com/MiroMindAI/MiroThinker), a single agent with a
-# summariser; we use OWL here. Each request carries its prompt and output token ids,
+# summariser. We look at both. Each request carries its prompt and output token ids,
 # the turns it depended on, and a separately measured tool latency. The traces ship
 # with the simulator, so they are already on your disk after `lsg.setup()`.
 # We are also in the process of extending GAIATrace to more setups and datasets!
@@ -43,11 +43,13 @@
 # - Describe the structure of an agent session: turns, roles, dependencies,
 #   fan-out, and tool time.
 # - Explain why agent traffic is prompt-heavy in tokens but decode-heavy in time.
-# - Measure KV cache hit rates on a real agent trace and explain where the hits
-#   come from.
-# - Reason about task-level latency: what the critical path is, and which
-#   serving-system knobs can and cannot shorten it.
+# - Explain where an agent's prompt tokens come from, and why the prompt grows.
+# - Say how a single-agent and a multi-agent system differ in the traffic they
+#   produce.
 # :::
+#
+# This is the first of two lectures on agent traffic. Here we look at what the
+# workload *is*; {doc}`07-agentic-workloads-2` puts it on a GPU.
 
 # %% [markdown]
 # ## Setup
@@ -161,23 +163,60 @@ show(3, tail=430, out=330)
 #
 # ## The shape of an agent session
 #
-# Let's look at one whole session: how the prompt grows, which role issues each
-# turn, and where the tool time goes.
+# The two recorded systems do not look alike, so let's take the simpler one first.
+# MiroThinker is a single agent in a ReAct-style loop — think, call a tool, read
+# the result, think again — with one helper: when a tool returns something very
+# long, such as a scraped web page, a separate **summariser** model is asked to
+# compress it before it enters the agent's context.
+#
+# We load two dozen recorded MiroThinker tasks and plot the longest one. (These
+# sessions contain requests far longer than the course's runtime predictor covers,
+# so we pass `max_tokens=None`: we are only looking at the trace, not simulating
+# it.)
+
+# %%
+def session_plot(df, title):
+    """Prompt length of every turn, coloured by role, with tool time behind it."""
+    fig, ax = plt.subplots(figsize=(9, 3.6))
+    ax2 = ax.twinx()
+    ax2.bar(df["turn"], df["tool_time"], color="0.85", zorder=0, width=.8)
+    ax2.set_ylabel("tool time (s)", color="0.5")
+    ax2.grid(False)
+    for role, g in df.groupby("role"):
+        ax.scatter(g["turn"], g["num_prefill_tokens"], label=role, s=30, zorder=3)
+    ax.set(xlabel="turn", ylabel="prompt tokens", title=title)
+    ax.set_zorder(ax2.get_zorder() + 1)
+    ax.patch.set_visible(False)
+    ax.legend(fontsize=8, ncol=3, loc="upper left")
+    fig.tight_layout()
+
+miro = lsg.gaia_sessions(num_sessions=24, seed=0, agent="mirothinker", max_tokens=None)
+one_miro = miro[miro.session == miro.groupby("session").size().idxmax()]
+session_plot(one_miro, f"MiroThinker: one task, {len(one_miro)} LLM requests")
+
+# %% [markdown]
+# The agent's own requests (`main`) climb in a staircase: each turn is the previous
+# turn plus the tool result, so the prompt only ever grows — about 3,100 tokens at
+# the start and 22,000 thirty-four turns later. This is the shape that papers on
+# agent serving usually report, and it is easy to reason about: one conversation,
+# growing monotonically, one request in flight at a time.
+#
+# The `summarizer` requests are the part this trace captures that most published
+# traces do not, and they do not follow the conversation at all. Each one hands a
+# long scraped page to a cheaper model and gets a couple of hundred tokens back,
+# which is what the main agent then sees. That is also why the main agent's own
+# prompt grows as gently as it does: the summariser is absorbing the long documents
+# on its behalf. A third of the requests in this task are summariser calls, so
+# "prefill grows monotonically" describes only part of what the serving system
+# actually receives.
+#
+# Now the multi-agent system, where there is no single conversation to grow at all.
+# OWL splits the task across a planner, a coordinator and several workers, each
+# with its own context.
 
 # %%
 one = sessions[sessions.session == 4]
-fig, ax = plt.subplots(figsize=(9, 3.6))
-ax2 = ax.twinx()
-ax2.bar(one["turn"], one["tool_time"], color="0.85", zorder=0, width=.8)
-ax2.set_ylabel("tool time (s)", color="0.5")
-ax2.grid(False)
-for role, g in one.groupby("role"):
-    ax.scatter(g["turn"], g["num_prefill_tokens"], label=role, s=30, zorder=3)
-ax.set(xlabel="turn", ylabel="prompt tokens", title=f"One task: {len(one)} LLM requests")
-ax.set_zorder(ax2.get_zorder() + 1)
-ax.patch.set_visible(False)
-ax.legend(fontsize=8, ncol=3, loc="upper left")
-fig.tight_layout()
+session_plot(one, f"OWL: one task, {len(one)} LLM requests")
 
 # %% [markdown]
 # Each dot represents a request from a sub-agent (plan, coordinate, web search, ...),
@@ -203,240 +242,88 @@ fig.tight_layout()
 #
 # ## Tokens, time, and tools
 #
-# Now, let's look at prompt (input) and output tokens for each sub-agent:
+# Now the whole sample, with the two systems side by side. Three numbers decide
+# what this traffic does to a serving system: how many tokens go in and out, how
+# long each kind of token takes, and how much of the time nothing is running at
+# all because a tool is.
 
 # %%
-tokens = pd.Series({
-    "requests": len(sessions),
-    "requests per session (median)": sessions.groupby("session").size().median(),
-    "prompt tokens (total)": sessions.num_prefill_tokens.sum(),
-    "output tokens (total)": sessions.num_decode_tokens.sum(),
-    "prompt : output": sessions.num_prefill_tokens.sum() / sessions.num_decode_tokens.sum(),
-    "median prompt tokens": sessions.num_prefill_tokens.median(),
-    "median output tokens": sessions.num_decode_tokens.median(),
-    "turns waiting on a tool": (sessions.tool_time > 0).mean(),
-    "tool time, median of those (s)": sessions.loc[sessions.tool_time > 0, "tool_time"].median(),
-})
-tokens.round(2)
+def shape(df):
+    return {"requests": len(df),
+            "requests per task (median)": df.groupby("session").size().median(),
+            "prompt tokens (total)": df.num_prefill_tokens.sum(),
+            "output tokens (total)": df.num_decode_tokens.sum(),
+            "prompt : output": df.num_prefill_tokens.sum() / df.num_decode_tokens.sum(),
+            "median prompt tokens": df.num_prefill_tokens.median(),
+            "median output tokens": df.num_decode_tokens.median(),
+            "turns waiting on a tool": (df.tool_time > 0).mean(),
+            "tool time, median of those (s)": df.loc[df.tool_time > 0, "tool_time"].median()}
+
+pd.DataFrame({"OWL (multi-agent)": shape(sessions),
+              "MiroThinker (single agent)": shape(miro)}).round(2)
 
 # %%
-fig, ax = plt.subplots(1, 2, figsize=(10, 3.4))
-for role, g in sessions.groupby("role"):
-    ax[0].scatter(g["num_prefill_tokens"], g["num_decode_tokens"], s=10, alpha=.6, label=role)
-ax[0].set(xlabel="prompt tokens", ylabel="output tokens", xscale="log", yscale="log",
-          title="Every request, by role")
-ax[0].legend(fontsize=7, ncol=2)
-tool = np.sort(sessions.loc[sessions.tool_time > 0, "tool_time"])
-ax[1].plot(tool, np.arange(1, len(tool) + 1) / len(tool))
-ax[1].set(xlabel="tool time (s)", ylabel="fraction of tool calls", xscale="log",
+fig, ax = plt.subplots(1, 3, figsize=(13, 3.4))
+for col, (name, df) in enumerate([("OWL", sessions), ("MiroThinker", miro)]):
+    for role, g in df.groupby("role"):
+        ax[col].scatter(g["num_prefill_tokens"], g["num_decode_tokens"], s=10, alpha=.6, label=role)
+    ax[col].set(xlabel="prompt tokens", ylabel="output tokens" if col == 0 else "",
+                xscale="log", yscale="log", title=f"{name}: every request, by role")
+    ax[col].legend(fontsize=7, ncol=2)
+for name, df in [("OWL", sessions), ("MiroThinker", miro)]:
+    tool = np.sort(df.loc[df.tool_time > 0, "tool_time"])
+    ax[2].plot(tool, np.arange(1, len(tool) + 1) / len(tool), label=name)
+ax[2].set(xlabel="tool time (s)", ylabel="fraction of tool calls", xscale="log",
           title="How long tools take")
+ax[2].legend(fontsize=8)
 fig.tight_layout()
 
 # %% [markdown]
-# You can see that different sub-agents, depending on their role, show different behaviors:
-# the coordinator has a distinct group of different prompt but similar output lengths;
-# the web search agent has varying prompt length but similar output length; and the web summariser agent
-# has high prompt length and relatively shorter output length.
-# These make sense once you think of what each sub-agent does.
-# In general, prompt (input) is longer than output by about 11:1 in tokens,
-# so this is prefill-heavy traffic.
+# Both systems are **prefill-heavy**, and the single agent much more so: 11 prompt
+# tokens per output token for OWL, 30 for MiroThinker. The reason is visible in the
+# scatter plots. OWL's sub-agents form distinct clouds — the coordinator answers
+# with a worker id, the web-search worker emits a tool call of a few dozen tokens,
+# the summariser reads a page chunk — while MiroThinker has just two: a main agent
+# whose prompt grows along the conversation, and a summariser sitting far to the
+# right with prompts of tens of thousands of tokens and tiny answers.
 #
-# Prompt and output tokens cost differently, though. A prompt token costs roughly 0.25 ms of GPU time on
-# our simulated replica, while an output token costs about 45 ms — nearly 200× more —
-# because decode is memory-bound (lecture 1). A turn with 9,000 prompt tokens and
-# 180 output tokens spends a couple of seconds on its prompt and eight on its
-# answer. So being prefill-heavy does not always mean prefill is going to be the bottleneck (it may or may not).
-# Another thing to consider is the prefix cache (lecture 5) — prefill gets much cheaper with a high prefix cache hit rate.
+# Tools behave differently too. Two thirds of MiroThinker's turns wait on a tool
+# against a third of OWL's, and MiroThinker's waits are four times longer at the
+# median (1.5 s against 0.4 s). Neither system is anywhere near the GPU for that
+# time.
 #
-# :::{admonition} Try it
-# :class: exercise
-# The recording used two models, so a real deployment of this system is two
-# serving problems rather than one. Using the `model` column, work out how much
-# GPU time each model would need for this workload: count its prompt and output
-# tokens and price them at the ~0.25 ms and ~45 ms per token above. If you had
-# eight GPUs, how would you split them, and which pool would saturate first?
-# :::
-#
-# ## Revisiting prefix caching for agentic workloads
-#
-# Now, let's see how many prefix cache hits this trace gets.
-# Are these agentic traces reusing a lot of prefixes?
-# First, we compute what a perfect, infinitely large
-# prefix cache would do, using exactly the rule from lecture 5: chain-hash every
-# full 16-token block, then count how many leading blocks of each prompt have been
-# seen before.
-
-# %%
-def ideal_hit_rate(df, block=16):
-    seen, hits, total = set(), 0, 0
-    for _, r in df.iterrows():
-        ids = json.loads(r.token_ids)
-        h, hashes = None, []
-        for b in range(len(ids) // block):           # name every full block
-            h = hash((h, tuple(ids[b * block:(b + 1) * block])))
-            hashes.append(h)
-        matched = 0
-        for name in hashes[:r.num_prefill_tokens // block]:   # walk the prompt
-            if name not in seen:
-                break
-            matched += 1
-        hits += matched * block
-        total += r.num_prefill_tokens
-        seen.update(hashes)                          # the prompt and the output are cached
-    return hits / total
-
-print(f"ideal prefix-cache hit rate: {ideal_hit_rate(sessions):.1%}")
-
-# %% [markdown]
-# About 60% of all prompt tokens in this workload have been computed before and can benefit from prefix caching, and this number roughly matches the
-# GAIATrace paper ([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725)).
-# This number is high, because the system prompt is long, and sub-agents often look at their past conversation history, similar
-# to the multi-turn chat behavior from lecture 5.
-# However, this is much lower than what some other papers (like Agentic AI Workload Characteristics,
-# [Yuan et al., IISWC '26](https://arxiv.org/abs/2605.26297)) reported,
-# where the reported numbers were more like 87--99%.
-# This is because of how OWL is designed: as a multi-agent system, OWL runs multiple sub-agents, and there is limited sharing of prompts between different agents.
-#
-# Still, the number is (slightly) higher than what Mooncake
-# ([Qin et al., FAST '25](https://arxiv.org/abs/2407.00079)) reported, which was about 59% for tool- and agent-style
-# traffic reaching the Kimi chatbot, and about 40% on ordinary conversation.
-# Again, how you designed the agentic system significantly affects the prefix cache hit rate.
-# Since we still do not have a consensus on what the right design for an agentic system is, this number will probably fluctuate in the future until we converge to a decision.
+# Prompt and output tokens cost differently, though. A prompt token costs roughly
+# 0.25 ms of GPU time on our simulated replica, while an output token costs about
+# 45 ms — nearly 200× more — because decode is memory-bound (lecture 1). A turn
+# with 9,000 prompt tokens and 180 output tokens spends a couple of seconds on its
+# prompt and eight on its answer. So being prefill-heavy does not always mean
+# prefill is going to be the bottleneck (it may or may not). Another thing to
+# consider is the prefix cache (lecture 5) — prefill gets much cheaper with a high
+# prefix cache hit rate, which is where the next lecture starts.
 #
 # :::{admonition} Try it
 # :class: exercise
-# Rerun `lsg.gaia_sessions` with `seed=1` and `num_sessions=48`, then recompute
-# the prompt:output ratio and the ideal hit rate. How stable are they across
-# samples, and what does that say about tuning a system to one trace?
-# :::
-#
-# ## Serving the trace
-#
-# Now, let's try giving the trace to the simulator.
-# Here, we simply assume that every request, whichever sub-agent issued it and whichever
-# model served it in the recording, goes to a single replica of Qwen2.5-32B on two A100s —
-# the same setup as lectures 3--5, with prefix caching living in that replica's GPU memory.
-# The tool latencies come from the trace, so a turn waits exactly as long as the real tool did.
-# `lsg.gaia_trace` writes it in the simulator's format, including the token ids and the dependency graph, so turn
-# *k+1* is released only after turn *k* finishes and its tool call returns. We send
-# one new task every ten seconds to a single replica.
-#
-# Because a user waits for the whole task, we measure **task completion time**: from
-# the moment a session's first request arrives to the moment its last one finishes,
-# tool time included.
-
-# %%
-trace = lsg.gaia_trace(sessions)
-
-def task_times(result):
-    """Wall-clock time of each session, from its first arrival to its last completion."""
-    q = result.requests.assign(session=lambda d: d["Request Id"] // 1000,
-                               done=lambda d: d["request_arrived_at"] + d["request_e2e_time"])
-    return q.groupby("session").apply(
-        lambda d: d["done"].max() - d["request_arrived_at"].min(), include_groups=False)
-
-agent = {}
-for pc in (False, True):
-    r = lsg.simulate(**SYSTEM, trace=trace, num_requests=len(sessions), qps=0.1,
-                     prefix_caching=pc, max_tokens=65536)
-    t = task_times(r)
-    agent[f"prefix caching {'on' if pc else 'off'}"] = {
-        "KV cache hit rate": r.cache_hit_rate,
-        "task time p50 (s)": t.median(), "task time p90 (s)": t.quantile(0.9),
-        **r.summary()[["TTFT p50 (ms)", "TTFT p99 (ms)", "TPOT p50 (ms)", "throughput (tok/s)"]]}
-pd.DataFrame(agent).round(2)
-
-# %% [markdown]
-# The measured KV cache hit rate, 60%, lands within a percent of the hand-computed
-# ideal. Blocks are evicted during the run (`r.cache` reports tens of thousands),
-# but this replica is large enough that the ones it loses are mostly blocks nobody
-# comes back to. Prefill work drops by 60%, TTFT by 6×, and the median task
-# finishes about a minute and a half sooner.
-#
-# The task-level gain is much smaller than the request-level one: a 6× better TTFT
-# buys a quarter off the task. That is the second half of the earlier sentence at
-# work — a task spends most of its time generating tokens and waiting for tools,
-# and prefix caching touches neither.
-#
-# :::{admonition} Try it
-# :class: exercise
-# 1. **Does the cache survive the tool call?** Rerun the comparison with a small
-#    KV cache (`kv_blocks=4000`, lecture 5) and look at `r.cache`. How many blocks
-#    are evicted, what happens to the hit rate, and do the sessions with the
-#    longest tool waits lose more than the others?
-# 2. **Chunk size for agents.** These runs used the default `chunk_size=512`.
-#    Sweep 512, 2048 and 4096 and report TTFT and task time. Why does a chunk size
-#    that was bad for chat (lecture 3) look better here, and does prefix caching
-#    being on change the answer?
-# :::
-#
-# ## Where a task's time goes
-#
-# Let's take the session apart. The bar for each turn runs from its arrival to its
-# first token (queueing and prefill) and then to its last token (decode); the gaps
-# between turns are tool calls and the agent's own bookkeeping.
-
-# %%
-r = lsg.simulate(**SYSTEM, trace=trace, num_requests=len(sessions), qps=0.1,
-                 prefix_caching=True, max_tokens=65536)
-q = r.requests.assign(session=lambda d: d["Request Id"] // 1000,
-                      turn=lambda d: d["Request Id"] % 1000)
-s4 = q[q.session == 4].sort_values("turn")
-t0 = s4.request_arrived_at.min()
-
-fig, ax = plt.subplots(figsize=(9, 4.2))
-for _, x in s4.iterrows():
-    a = x.request_arrived_at - t0
-    ax.barh(x.turn, x.prefill_e2e_time, left=a, color="C3", height=.7)
-    ax.barh(x.turn, x.request_e2e_time - x.prefill_e2e_time,
-            left=a + x.prefill_e2e_time, color="C0", height=.7)
-ax.barh(0, 0, color="C3", label="queueing + prefill")
-ax.barh(0, 0, color="C0", label="decode")
-ax.set(xlabel="seconds since the task arrived", ylabel="turn",
-       title="One task on the GPU; the gaps are tool calls")
-ax.legend(loc="upper right")
-ax.invert_yaxis()
-fig.tight_layout()
-
-# %%
-tool4 = sessions[sessions.session == 4]
-breakdown = pd.Series({
-    "task completion time (s)": (s4.request_arrived_at + s4.request_e2e_time).max() - t0,
-    "summed over its turns: decode (s)": (s4.request_e2e_time - s4.prefill_e2e_time).sum(),
-    "summed over its turns: prefill (s)": s4.prefill_time_execution_plus_preemption.sum(),
-    "summed over its turns: queueing (s)": s4.request_scheduling_delay.sum(),
-    # Siblings released by one fan-out all waited for the same tool call, so count it once.
-    "waiting for tools (s)": tool4.groupby(tool4.dep.map(tuple)).tool_time.max().sum(),
-})
-breakdown.round(1)
-
-# %% [markdown]
-# First, you can see that the task is executed as a chain of queries, mostly sequential but
-# sometimes parallel. Many agentic systems are mostly sequential, while people are exploring various
-# ways to incorporate more parallel structures (for example LATS,
-# [Zhou et al., ICML '24](https://arxiv.org/abs/2310.04406)).
-# Second, you can see that the blue (decode) parts dominate. This is because the prefix cache hit
-# rate is high, and currently there is no other contention to the GPU.
-# With a lower prefix cache hit rate and many other requests on the same GPU, the bars will look different
-# (because prefill cannot be batched as nicely as decode, as we learned in lecture 2).
-# Again, the twelve parallel tasks in the middle are OWL trying to summarize a very long web-scraped
-# text while not significantly increasing the context length.
-#
-# :::{admonition} Try it
-# :class: exercise
-# Measure how long the join turn (the one whose `dep` lists twelve turns) waits
-# after the *first* of its dependencies finishes. How much of that is queueing
-# behind its own siblings, and what would a scheduler have to know to shorten it?
+# Each recording used two models, so a real deployment is two serving problems
+# rather than one. Using the `model` column, work out how much GPU time each model
+# would need: count its prompt and output tokens and price them at the ~0.25 ms and
+# ~45 ms per token above. If you had eight GPUs, how would you split them for OWL,
+# and how for MiroThinker? Which pool saturates first in each case?
 # :::
 #
 # ## Summary
 #
 # | | What we saw |
 # |---|---|
-# | Shape of a task | an agentic task is mostly a series of sequential requests but sometimes parallel |
-# | Tokens | usually more input tokens than output tokens, but it depends on the agent's role |
-# | Time | decode still dominates (especially when the batch size is low and prefix cache hit rate is high) |
-# | Prefix caching | hit rate is around 60% and improves TTFT by 6×, but the median task time by only about a quarter |
+# | A task is not a request | one GAIA task is dozens of dependent LLM requests, and the user waits for the whole chain |
+# | Single agent | one conversation that only grows: a clean staircase of prompt lengths, plus a summariser whose requests ignore the conversation entirely |
+# | Multi-agent | no single conversation; each worker starts its own, and a fan-out can release a dozen requests at once |
+# | Tokens | prefill-heavy in both, 11:1 for OWL and 30:1 for MiroThinker |
+# | Time | an output token still costs ~200× a prompt token, so prefill-heavy does not mean prefill-bound |
+# | Tools | a third of OWL's turns and two thirds of MiroThinker's wait on a tool, for 0.4 s and 1.5 s at the median |
+#
+# {doc}`07-agentic-workloads-2` takes these traces to a GPU: how much of all that
+# prompt text is reusable, what prefix caching is worth here, and where a task's
+# time actually goes.
 #
 # ## Check your understanding
 #
@@ -451,27 +338,25 @@ lsg.quiz([
                  "The system pads prompts to a block boundary"],
      "answer": 1,
      "explain": "Each request is independent. Continuity is created by resending everything, which is exactly why the prefix cache works so well here."},
-    {"q": "Agent traffic has about 11 prompt tokens per output token. Where does most of the GPU <i>time</i> go?",
+    {"q": "Agent traffic has 11--30 prompt tokens per output token. Where does most of the GPU <i>time</i> go?",
      "options": ["Prefill, because there are far more prompt tokens",
-                 "Decode, because each output token costs roughly 200× more than a prompt token"],
+                 "Decode, because each output token costs roughly 200\u00d7 more than a prompt token"],
      "answer": 1,
      "explain": "Prefill is compute-bound and processes thousands of tokens per step; decode is memory-bound and produces one token per step per request."},
-    {"q": "Prefix caching cut TTFT by 6× but task completion time by only about a quarter. Why?",
-     "options": ["The KV cache hit rate was too low",
-                 "Most of a task's time is decode and tool calls, which prefix caching does not touch",
-                 "Task time is dominated by queueing"],
+    {"q": "MiroThinker is a single agent, yet its prompt lengths are not one clean staircase. What breaks the pattern?",
+     "options": ["The agent restarts its conversation when it gets too long",
+                 "A third of the requests are summariser calls, whose prompts are scraped pages rather than the conversation",
+                 "Requests arrive out of order"],
      "answer": 1,
-     "explain": "The task's critical path is a chain of turns, each spending most of its time generating tokens or waiting for a tool."},
-    {"q": "A session waits 22 s for a tool. What is the dilemma for the replica holding its KV cache?",
-     "options": ["Whether to keep the blocks (idle memory) or evict them (a full re-prefill when the turn returns)",
-                 "Whether to decode ahead speculatively",
-                 "Whether to switch the session to another model"],
+     "explain": "Traces that only record the main loop show a monotonic staircase. The summariser is part of the same system and reaches the same serving stack."},
+    {"q": "What does a fan-out in OWL do to the serving system that a single agent never does?",
+     "options": ["It releases a dozen requests at the same instant, so they queue behind each other",
+                 "It makes the prompts longer",
+                 "It bypasses the KV cache"],
      "answer": 0,
-     "explain": "Tool gaps make the reuse distance long. This is the agentic version of lecture 5's eviction trade-off, and it is why cache capacity and offload matter for agents."},
-    {"q": "The ideal KV cache hit rate on this trace is 60% rather than 95%. What limits it?",
-     "options": ["The 16-token block size",
-                 "Each new worker starts its own conversation with a different system prompt, and the fan-out requests share only their instructions",
-                 "The traces were recorded with caching disabled"],
+     "explain": "A multi-agent system has no single conversation: a coordinator can hand the same instant's work to many workers, and they all arrive together."},
+    {"q": "Two thirds of MiroThinker's turns wait on a tool, for 1.5 s at the median. What is the GPU doing then?",
+     "options": ["Decoding ahead", "Nothing, for that session \u2014 unless another task's work can fill the gap"],
      "answer": 1,
-     "explain": "Reuse follows the agent's structure. Within a worker's stretch of turns almost everything repeats; across workers and across the chunks of a fan-out, much less does."},
+     "explain": "Tool time is off-GPU. For one task it is dead time; a serving system can only reclaim it by running someone else's request."},
 ])

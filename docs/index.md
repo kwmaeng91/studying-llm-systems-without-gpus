@@ -48,9 +48,12 @@ The website and lecture materials were built with the help of Claude Code. I’v
   - KV reuse across requests, prompt layout, eviction
 * - 6
   - {doc}`lectures/06-agentic-workloads`
-  - real agent traces: sessions, tool calls, task-level latency
+  - real agent traces: sessions, roles, tool calls, single agent vs. multi-agent
 * - 7
-  - {doc}`lectures/07-scheduling-agentic-workloads`
+  - {doc}`lectures/07-agentic-workloads-2`
+  - serving those traces: prefix reuse, task-level latency, where a task's time goes
+* - 8
+  - {doc}`lectures/08-scheduling-agentic-workloads`
   - agent traffic on a cluster: load, replica carving, disaggregation, routing, queue order (draft)
 ```
 
