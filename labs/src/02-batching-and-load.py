@@ -213,10 +213,10 @@ fig.tight_layout()
 # **Where is the knee?** At most 128 requests decode at once (the scheduler's
 # batch-size cap), and each request needs `decode_tokens` steps of about one TPOT.
 # From this, estimate the highest arrival rate the system can sustain with
-# 256-token outputs, and compare it with the knee above. Does your estimate match the empirical result?
-# Repeat the estimation of the knee,
-# and check it by rerunning the sweep, for (a) `decode_tokens=128`, and (b)
-# `batch_size_cap=64` (an argument you can pass to `lsg.sweep` and `lsg.simulate`).
+# 256-token outputs, and compare it with the knee above. Does your estimate match
+# the empirical result? Then repeat the estimate, and check it by rerunning the
+# sweep, for (a) `decode_tokens=128`, and (b) `batch_size_cap=64` (an argument you
+# can pass to `lsg.sweep` and `lsg.simulate`).
 # :::
 
 # %% [markdown]

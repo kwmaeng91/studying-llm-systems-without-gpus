@@ -114,9 +114,10 @@ output 256 token의 decode 전용 요청으로 부하를 쓸어 봅니다.
 **Knee는 어디인가.** 동시에 decode할 수 있는 요청은 최대 128개이고(scheduler의
 batch-size 상한), 요청 하나는 TPOT 한 번 정도가 걸리는 step을 `decode_tokens`번
 필요로 합니다. 여기서 출발해, output이 256 token일 때 시스템이 감당할 수 있는 최대
-도착률을 추정하고 위 그래프의 knee와 비교해 보세요. 그다음 (a) `decode_tokens=128`,
-(b) `batch_size_cap=64`(`lsg.sweep`과 `lsg.simulate`의 인자)일 때의 knee를 예측하고
-sweep을 다시 돌려 확인해 보세요.
+도착률을 추정하고 위 그래프의 knee와 비교해 보세요. 추정이 실제 결과와 맞나요?
+그다음 (a) `decode_tokens=128`, (b) `batch_size_cap=64`(`lsg.sweep`과 `lsg.simulate`에
+넘길 수 있는 인자)일 때에 대해서도 같은 방식으로 knee를 추정하고, sweep을 다시 돌려
+확인해 보세요.
 :::
 <!-- cell -->
 ### p50보다 p99가 먼저 나빠진다
