@@ -253,7 +253,7 @@ print(f"memory bound {1e3 * bound:.1f} ms, compute bound "
 #    output tokens, then change `device` to `"h100"` and rerun. An H100 has about
 #    3.2× the FLOP/s of an A100 (989 vs. 312 TFLOP/s) but only about 1.7× the
 #    memory bandwidth (3.35 vs. 2.0 TB/s). Predict how much TTFT and TPOT improve,
-#    then check.
+#    then check. (Note: if you want to rerun other analyses from above with the changed model or GPUs, make sure to change some hardcoded numbers from the code to get the correct result.)
 # :::
 #
 # ## Decode scales with the output
@@ -281,7 +281,7 @@ plt.title(f"slope = {1e3 * slope:.1f} ms/token");
 import pandas as pd
 
 rows = []
-for p_len in (256, 1024, 4096, 15000):
+for p_len in (256, 1024, 4096):
     for d_len in (64, 256, 1024):
         s_ = lsg.simulate(**SYSTEM, prefill_tokens=p_len, decode_tokens=d_len,
                           qps=0.05, num_requests=5).summary()
@@ -308,11 +308,9 @@ ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False)
 fig.tight_layout()
 
 # %% [markdown]
-# **Decode dominates** for nearly every shape. One output token takes ~39 ms,
+# **Decode dominates** for nearly every shape. For Qwen2.5-32B-Instruct with A100 and TP-2 (other setups will show similar trends), one output token takes ~39 ms,
 # about as long as prefilling ~190 prompt tokens (0.2 ms each), so even a 4K-token
-# prompt with a 64-token answer spends most of its time in decode. Only an
-# extreme case, a 15K-token document with a short 64-token answer such as a
-# summary, tips the balance toward prefill.
+# prompt with a 64-token answer spends most of its time in decode.
 #
 # This is why so much (but not all!) LLM serving research targets decode: it is
 # where a single request spends its time, and it is also where the GPU's math units sit idle.
@@ -320,9 +318,9 @@ fig.tight_layout()
 # :::{admonition} Try it
 # :class: exercise
 # **When does prefill win?** Find the prompt length at which prefill and decode
-# take equal time for a 64-token answer. Estimate it first from the ~0.2 ms per
-# prompt token and ~39 ms per output token measured above, then change the grid in
-# the code to check your estimate. (Remember the limit of 16,384 tokens per
+# take equal time for a 64-token answer. 
+# Instead of empirically finding out, try to predict from the TTFT and TPOT numbers from before (if you have changed your model or GPU, make sure you are looking at the correct number!).
+# Then, run the code to check if you estimate is correct. (Remember the limit of 16,384 tokens per
 # request.)
 # :::
 #
