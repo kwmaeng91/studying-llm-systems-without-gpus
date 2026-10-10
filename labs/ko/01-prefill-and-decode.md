@@ -169,6 +169,8 @@ $2 \times 64\ \text{layer} \times 8\ \text{KV head} \times 128 \times 2\ \text{B
    simulation한 뒤, `device`를 `"h100"`으로 바꿔 다시 돌려 보세요. H100은 A100보다
    FLOP/s가 약 3.2배(989 vs. 312 TFLOP/s)지만 메모리 대역폭은 약 1.7배(3.35 vs. 2.0
    TB/s)밖에 되지 않습니다. TTFT와 TPOT이 각각 얼마나 좋아질지 예상하고 확인해 보세요.
+   (참고: 바뀐 모델이나 GPU로 위의 다른 분석들을 다시 돌리고 싶다면, 코드에 하드코딩된
+   숫자들도 함께 바꿔야 올바른 결과가 나옵니다.)
 :::
 
 ## Decode는 output 길이에 비례한다
@@ -178,14 +180,14 @@ TPOT입니다.
 <!-- cell -->
 ## 시간은 어디에 쓰이나
 
-요청 하나 전체로 보면 어느 단계가 더 중요할까요? 짧은 prompt부터 15K token 문서까지,
+요청 하나 전체로 보면 어느 단계가 더 중요할까요? Prompt 256개부터 4,096개까지,
 그리고 output 64개부터 1,024개까지 여러 모양의 요청을 격자로 simulation하고, 각 요청의
 E2E latency를 **prefill**(TTFT)과 **decode**(첫 token 이후 전부)로 나눠 봅니다.
 <!-- cell -->
-거의 모든 모양에서 **decode가 지배적**입니다. Output token 하나는 약 39 ms가 걸리는데,
-이는 prompt token을 약 190개(개당 0.2 ms) prefill하는 것과 비슷합니다. 그래서 4K token
-prompt에 64 token 답변이라 해도 시간의 대부분은 decode에 쓰입니다. 15K token 문서에
-요약처럼 짧은 64 token 답변을 내는, 꽤 극단적인 경우에만 저울이 prefill 쪽으로 기웁니다.
+여기 있는 모든 모양에서 **decode가 지배적**입니다. Qwen2.5-32B-Instruct를 A100과
+TP-2로 돌릴 때(다른 설정에서도 경향은 비슷합니다) output token 하나는 약 39 ms가
+걸리는데, 이는 prompt token을 약 190개(개당 0.2 ms) prefill하는 것과 비슷합니다. 그래서
+4K token prompt에 64 token 답변이라 해도 시간의 대부분은 decode에 쓰입니다.
 
 이것이 LLM serving 연구의 많은 부분(전부는 아닙니다!)이 decode를 겨냥하는 이유입니다.
 요청 하나가 시간을 쓰는 곳이자, GPU의 연산 유닛이 놀고 있는 곳이니까요.
@@ -193,9 +195,9 @@ prompt에 64 token 답변이라 해도 시간의 대부분은 decode에 쓰입�
 :::{admonition} 직접 해보기
 :class: exercise
 **언제 prefill이 이기나.** 64 token 답변일 때 prefill과 decode가 같은 시간이 되는 prompt
-길이를 찾아보세요. 먼저 위에서 측정한 prompt token당 약 0.2 ms와 output token당 약 39
-ms로 추정한 다음, 코드의 격자를 바꿔 확인해 보세요. (요청당 16,384 token 제한을 잊지
-마세요.)
+길이를 찾아보세요. 직접 돌려서 찾는 대신, 앞에서 본 TTFT와 TPOT 숫자로 먼저 예측해
+보세요(모델이나 GPU를 바꿨다면 알맞은 숫자를 보고 있는지 확인하세요!). 그런 다음 코드를
+돌려 예측이 맞는지 확인해 보세요. (요청당 16,384 token 제한을 잊지 마세요.)
 :::
 
 ## 정리
