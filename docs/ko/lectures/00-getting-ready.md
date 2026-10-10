@@ -123,6 +123,9 @@ Jupyter notebook에서 Python을 읽고 조금씩 고치게 됩니다. Python이
 - [The Python Tutorial](https://docs.python.org/3/tutorial/): 3–5장이면 충분합니다.
 - [Welcome to Colab](https://colab.research.google.com/notebooks/intro.ipynb): 셀 실행하기,
   사본 저장하기.
+- [10 minutes to pandas](https://pandas.pydata.org/docs/user_guide/10min.html):
+  simulator의 결과는 pandas DataFrame으로 돌아오고, 실습에서는 그것을 고르고 묶고
+  그립니다.
 
 ## Transformer와 LLM
 

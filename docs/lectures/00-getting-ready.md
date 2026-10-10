@@ -122,6 +122,9 @@ You will read and lightly edit Python in Jupyter notebooks. If you are not famil
 
 - [The Python Tutorial](https://docs.python.org/3/tutorial/): sections 3–5 are enough.
 - [Welcome to Colab](https://colab.research.google.com/notebooks/intro.ipynb): running cells, saving a copy.
+- [10 minutes to pandas](https://pandas.pydata.org/docs/user_guide/10min.html):
+  the simulator returns its results as pandas DataFrames, and the labs select,
+  group and plot them.
 
 ## Transformers and LLMs
 
