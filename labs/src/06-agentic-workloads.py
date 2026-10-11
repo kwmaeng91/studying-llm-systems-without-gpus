@@ -148,7 +148,7 @@ show(miro, 3, 0, head=620, out=380)
 # %% [markdown]
 # The prompt opens with the system prompt: the rules of the loop ("You can only use
 # one tool per message, and will receive the result of that tool in the user's next
-# response") and the tool definitions, followed by the user's task. The model answers
+# response") and the tool definitions, followed by the user's task ("we have a 5-man WoW group: 1 tank, 1 healer, 3 DPS. Two are plate wearers..."). The model answers
 # with its reasoning. This is the "reason" half of ReAct, and it is expensive: 1,556
 # output tokens of thinking before anything is called.
 #
@@ -211,7 +211,9 @@ one_miro = miro[miro.session == MIRO_SESSION]
 session_plot(one_miro, f"MiroThinker: task {MIRO_SESSION}, {len(one_miro)} LLM requests")
 
 # %% [markdown]
-# The agent's own requests (`main`) climb in a staircase, exactly as the excerpts
+# Each dot is a request to either the main (MiroThinker model) or summarizer model, and when the agent uses a tool,
+# the bar shows the tool execution time. The prompt length (y-axis of each dot) grows 
+# in a staircase, exactly as the excerpts
 # above suggest: each turn is the previous turn plus the tool result, so the prompt
 # only ever grows — about 3,100 tokens at the start and 22,000 thirty-four turns
 # later. This is the shape that papers on agent serving usually report, and it is
@@ -297,23 +299,19 @@ one = sessions[sessions.session == OWL_SESSION]
 session_plot(one, f"OWL: task {OWL_SESSION}, {len(one)} LLM requests")
 
 # %% [markdown]
-# Compare this with MiroThinker's staircase. Each dot is a request from a sub-agent
-# (plan, coordinate, web search, ...), and when the agent uses a tool, the bar shows
-# the tool execution time.
-# The prompt length (y-axis of each dot) grows inside a stretch of turns and then drops: each time the
+# Compare this with MiroThinker's staircase.
+# The prompt length (y-axis of each dot) grows inside a stretch of turns and then drops, instead of growing monotonically: each time the
 # coordinator hands a subtask to a fresh worker, that worker starts a new
 # conversation with its own system prompt. Within a worker's stretch, every turn
 # adds a tool result to the prompt. Again, this is how OWL was designed and not necessarily universal.
 #
 # The flat band of twelve large turns in the middle is the web worker retrieving a long page, splitting it into twelve
-# pieces, and asking the model to summarise each piece in parallel. MiroThinker
-# solves the same problem with a single summariser call; OWL splits it twelve ways
-# and releases all twelve requests at once, which no single-agent trace ever does.
+# pieces, and asking the model to summarise each piece in parallel.
 # This is again a specific design
-# made by the OWL authors to keep the prompt (prefill) length small and is not fundamental.
+# made by the OWL authors to keep the prompt (prefill) length small and is not fundamental (MiroThinker simply uses one summarizer agent call).
 # You don't have to understand every piece that is happening in this plot, and many things are specific to the
 # particular design of this agent; having a sense
-# that multi-agent systems are complex is probably enough.
+# that multi-agent systems are more complex than a ReAct-style agent like Mirothinker is probably enough.
 #
 # :::{admonition} Try it
 # :class: exercise
@@ -362,21 +360,20 @@ ax[2].legend(fontsize=8)
 fig.tight_layout()
 
 # %% [markdown]
-# Both systems are **prefill-heavy**, and the single agent much more so: 30 prompt
-# tokens per output token for MiroThinker, 11 for OWL. The reason is visible in the
+# Both systems are **prefill-heavy**, and the single agent much more so: the prompt token to output token ratio is 30:1 for MiroThinker and 11:1 for OWL.
+# The reason is visible in the
 # scatter plots. MiroThinker has two clouds: a main agent whose prompt grows along
-# the conversation, and a summariser sitting far to the right with prompts of tens
-# of thousands of tokens and tiny answers. OWL's sub-agents form many more — the
+# the conversation, and a summariser that usually takes in long input and produces a short output.
+# OWL's sub-agents form distinct clusters from each other — the
 # coordinator answers with a worker id, the web-search worker emits a tool call of a
 # few dozen tokens, the summariser reads a page chunk — and all of them are smaller,
 # because no single conversation is allowed to grow for long.
 #
 # Tools behave differently too. Two thirds of MiroThinker's turns wait on a tool
 # against a third of OWL's, and MiroThinker's waits are four times longer at the
-# median (1.5 s against 0.4 s). Neither system is anywhere near the GPU for that
-# time.
+# median (1.5 s against 0.4 s).
 #
-# Prompt and output tokens cost differently, though. A prompt token costs roughly
+# Prompt and output tokens cost differently, as we learned in our earlier lectures. A prompt token costs roughly
 # 0.25 ms of GPU time on our simulated replica, while an output token costs about
 # 45 ms — nearly 200× more — because decode is memory-bound (lecture 1). A turn
 # with 9,000 prompt tokens and 180 output tokens spends a couple of seconds on its
