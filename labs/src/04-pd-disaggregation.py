@@ -180,7 +180,7 @@ for name, r in four.items():
 # :class: exercise
 # **Shorter documents.** Change the document length in `mixed_trace` from 3,800 to
 # 1,000 tokens and rerun this head-to-head. Does disaggregation still help TPOT as
-# much? Why?
+# much? Why? (Tip: do not overwrite the `trace` variable, as we will use it below; instead, generate a new trace named differently)
 # :::
 #
 # ## Tuning each pool separately
@@ -190,7 +190,7 @@ for name, r in four.items():
 # prefill replica has no decoding users to protect, so it can use a large budget
 # and prefill each prompt in as few steps as possible. Compare the prefill pool
 # with the lecture 3 budget (512) and with a large one (4,096, the default in our
-# helper):
+# helper). **Note: if you did not follow my tip in the above exercise and overwrote the `trace` variable with prefill length 1,000, re-generate the trace with 3,800 prefill tokens**:
 
 # %%
 pd.DataFrame({f"prefill chunk_size={c}": run_pd(1, 1, prefill_chunk_size=c, trace=trace,
