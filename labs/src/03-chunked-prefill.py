@@ -374,7 +374,6 @@ print(f"longest gap between two tokens for a chat user: {1e3 * gap_chunk:.0f} ms
 # load the weights, and **a step that mixes them uses both**. Chunked prefill gets
 # the efficiency of batching (policy 3) without its long steps.
 #
-#
 # ## Choosing the chunk size
 #
 # The token budget is a knob, and it trades one latency against the other:

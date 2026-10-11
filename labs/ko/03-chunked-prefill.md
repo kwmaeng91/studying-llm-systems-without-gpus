@@ -179,12 +179,6 @@ token짜리 chunk가 들어갑니다:
 유닛을 바쁘게 쓰고, decode는 weight를 읽느라 메모리 대역폭을 쓰므로, **둘을 섞은 step은
 양쪽을 다 씁니다**. Chunked prefill은 긴 step 없이 정책 3의 batching 효율을 가져옵니다.
 
-:::{admonition} 직접 해보기
-:class: exercise
-시나리오의 3,800 token짜리 문서를 1,000 token짜리로 바꿔 보세요. `chunk_size=4096`일 때
-멈춤은 얼마나 긴가요? 512일 때는요? chunking이 여전히 값어치를 하나요?
-:::
-
 ## Chunk size 고르기
 
 Token 예산은 knob이고, 한쪽 latency를 다른 쪽과 맞바꿉니다:
