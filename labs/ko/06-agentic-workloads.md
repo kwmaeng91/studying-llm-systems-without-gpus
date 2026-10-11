@@ -48,9 +48,8 @@ Agent 트래픽을 다루는 두 강의 중 첫 번째입니다. 여기서는 wo
 두 시스템 중 더 단순한 쪽부터 시작합니다.
 [MiroThinker](https://github.com/MiroMindAI/MiroThinker)는 **ReAct** 루프를 도는 **단일
 agent**입니다 ([Yao et al., ICLR '23](https://arxiv.org/abs/2210.03629)).
-ReAct는 요즘 agent 대부분이 바탕으로 삼는 패턴입니다. 한 번에 답을 내놓는 대신 모델이
-*추론*("이 아이템을 입을 수 있는 class가 뭔지 알아야겠다")과 *행동*(tool 호출을 내놓기,
-여기서는 MCP의 XML 형식)을 번갈아 합니다. Tool의 결과는 대화에 덧붙고, 모델은 다시
+ReAct는 많은 agent가 바탕으로 삼는 패턴입니다. 한 번에 답을 내놓는 대신 모델이
+*추론*(즉, 계획 세우기)과 *행동*(즉, tool 호출 내놓기)을 번갈아 합니다. Tool의 결과는 대화에 덧붙고, 모델은 다시
 추론하고, 답이 나올 때까지 이 루프가 반복됩니다. 모든 것이 하나의 대화 안에 머뭅니다.
 
 MiroThinker는 이 루프에 도우미를 하나 더합니다. Tool이 아주 긴 것(예: 스크랩한 웹
@@ -65,9 +64,9 @@ MiroThinker는 이 루프에 도우미를 하나 더합니다. Tool이 아주 �
 - `session` / `turn`: 어떤 과제이고, 그 안에서 몇 번째인지.
 - `role`: 시스템 안의 어떤 agent가 낸 요청인지. 여기서는 `main`(agent 자신)과
   `summarizer` 둘뿐입니다.
-- `model`: 기록 당시 그 요청을 처리한 모델. MiroThinker 자신의 요청은 Qwen 기반 모델이,
-  요약기의 요청은 gpt-4o-mini가 맡았습니다. 이건 그냥 GAIATrace 저자들(바로 저와 제
-  학생들입니다!)이 그렇게 돌린 것입니다.
+- `model`: 기록 당시 그 요청을 처리한 모델. MiroThinker는 Qwen 기반으로 finetuning된
+  모델이고, 요약기는 gpt-4o-mini를 씁니다. 이건 그냥 GAIATrace 저자들(바로 저와 제
+  학생들입니다!)이 그렇게 돌린 것이고, 다른 모델 선택도 얼마든지 가능합니다.
 - `dep`: 이 요청이 풀리기 전에 끝나야 하는 turn들.
 - `tool_time`: 이 turn이 기다린 tool 호출이 실제로 얼마나 걸렸는지. Agent 밖에서 tool을 다시
   돌려 측정했습니다.
@@ -87,7 +86,9 @@ Trace에는 token id가 들어 있으므로 요청을 다시 읽어 볼 수 있�
 전리품을 입을 수 있는지 묻는 질문입니다.
 <!-- cell -->
 Prompt는 system prompt로 시작합니다. 루프의 규칙("한 메시지에 tool은 하나만 쓸 수 있고, 그
-결과는 사용자의 다음 응답으로 받는다")과 tool 정의들, 그 뒤에 사용자의 과제가 옵니다.
+결과는 사용자의 다음 응답으로 받는다")과 tool 정의들, 그 뒤에 사용자의 과제("A 5-man group
+made up of one tank, one healer, and three DPS is doing a dungeon that was just released
+in World of Warcraft. Two are plate wearers and two are cloth wearers...")가 옵니다.
 모델은 자기 추론으로 답합니다. ReAct의 "추론" 쪽이고, 비쌉니다. 아무것도 호출하기 전에
 생각으로만 output token 1,556개를 씁니다.
 
@@ -114,7 +115,9 @@ Prompt는 system prompt로 시작합니다. 루프의 규칙("한 메시지에 t
 과제 하나를 통째로 봅시다. Prompt가 어떻게 자라는지, 각 turn을 어떤 역할이 내는지,
 그리고 tool 시간이 어디로 가는지.
 <!-- cell -->
-Agent 자신의 요청(`main`)은 위 발췌가 말해 주는 그대로 계단처럼 올라갑니다. 매 turn은
+각 점은 main(MiroThinker 모델) 또는 summarizer 모델로 가는 요청 하나이고, agent가 tool을
+쓰면 막대가 그 tool의 실행 시간을 보여 줍니다. Prompt 길이(각 점의 y축)는 위 발췌가 말해
+주는 그대로 계단처럼 올라갑니다. 매 turn은
 이전 turn에 tool 결과를 더한 것이라서 prompt는 자라기만 합니다. 처음에 약 3,100 token이던
 것이 서른네 turn 뒤에는 22,000 token이 됩니다. Agent serving을 다루는 논문들이 보통
 보고하는 모양이 이것이고, 따지기도 쉽습니다. 대화 하나가 단조롭게 자라고, 한 번에 하나의
@@ -169,20 +172,20 @@ Coordinator가 다음 하위 과제로 넘어가면 새 worker가 자기 system 
 
 ### Session의 모양
 <!-- cell -->
-MiroThinker의 계단과 비교해 보세요. 각 점은 sub-agent(plan, coordinate, web search, ...)가
-낸 요청 하나이고, agent가 tool을 쓰면 막대가 그 tool의 실행 시간을 보여 줍니다.
-Prompt 길이(각 점의 y축)는 몇 개의 turn에 걸쳐 자라다가 뚝 떨어집니다. Coordinator가 하위
+MiroThinker의 계단과 비교해 보세요.
+Prompt 길이(각 점의 y축)는 단조롭게 자라는 대신, 몇 개의 turn에 걸쳐 자라다가 뚝
+떨어집니다. Coordinator가 하위
 과제를 새 worker에게 넘길 때마다 그 worker는 자기 system prompt로 새 대화를 시작하기
 때문입니다. 한 worker가 이어 가는 구간 안에서는 매 turn이 tool 결과를 prompt에 덧붙입니다.
 다시 말하지만 이는 OWL이 그렇게 설계된 것이지 보편적인 것은 아닙니다.
 
 가운데 평평하게 늘어선 큰 turn 열두 개는, 웹 worker가 긴 페이지를 가져와 열두 조각으로
-쪼갠 뒤 각 조각을 병렬로 요약해 달라고 모델에 부탁하는 장면입니다. MiroThinker는 같은
-문제를 요약기 호출 하나로 푸는데, OWL은 열두 갈래로 쪼개고 열두 요청을 한꺼번에
-풀어놓습니다. 단일 agent trace에서는 결코 볼 수 없는 일이죠. 이것 역시 prompt(prefill)
-길이를 작게 유지하려고 OWL 저자들이 택한 특정 설계이고 본질적인 것은 아닙니다.
+쪼갠 뒤 각 조각을 병렬로 요약해 달라고 모델에 부탁하는 장면입니다.
+이것 역시 prompt(prefill) 길이를 작게 유지하려고 OWL 저자들이 택한 특정 설계이고 본질적인
+것은 아닙니다(MiroThinker는 그냥 요약기 agent 호출 하나로 끝냅니다).
 이 그래프에서 벌어지는 모든 것을 이해할 필요는 없고, 많은 부분이 이 agent 특유의 설계에서
-오는 것이니, multi-agent 시스템이 복잡하다는 감각 정도면 충분합니다.
+오는 것이니, multi-agent 시스템이 MiroThinker 같은 ReAct 스타일 agent보다 복잡하다는 감각
+정도면 충분합니다.
 
 :::{admonition} 직접 해보기
 :class: exercise
@@ -197,19 +200,19 @@ MiroThinker의 계단처럼 보이는 것이 있나요?
 세 가지 숫자가 결정합니다. Token이 얼마나 들어가고 나오는지, 각 종류의 token이 얼마나
 걸리는지, 그리고 tool이 도는 동안 아무것도 실행되지 않는 시간이 얼마나 되는지.
 <!-- cell -->
-두 시스템 모두 **prefill 중심**이고, 단일 agent 쪽이 훨씬 더 그렇습니다. Output token 하나당
-prompt token이 MiroThinker는 30개, OWL은 11개입니다. 이유는 산점도에 보입니다.
-MiroThinker에는 무리가 둘뿐입니다. 대화를 따라 prompt가 자라는 main agent와, 수만 token짜리
-prompt에 짧은 답을 내놓으며 오른쪽 멀리 자리 잡은 요약기. OWL의 sub-agent들은 훨씬 많은
-무리를 이룹니다. Coordinator는 worker id로 답하고, 웹 검색 worker는 수십 token짜리 tool
+두 시스템 모두 **prefill 중심**이고, 단일 agent 쪽이 훨씬 더 그렇습니다. Output token 대비
+prompt token 비율이 MiroThinker는 30:1, OWL은 11:1입니다. 이유는 산점도에 보입니다.
+MiroThinker에는 무리가 둘뿐입니다. 대화를 따라 prompt가 자라는 main agent와, 대개 긴 입력을
+받아 짧은 출력을 내놓는 요약기. OWL의 sub-agent들은 서로 뚜렷이 구분되는 무리를 이룹니다.
+Coordinator는 worker id로 답하고, 웹 검색 worker는 수십 token짜리 tool
 호출을 내놓고, 요약기는 페이지 조각을 읽습니다. 그리고 그 무리들은 모두 더 작습니다.
 어떤 대화도 오래 자라도록 두지 않으니까요.
 
 Tool의 양상도 다릅니다. MiroThinker는 turn의 3분의 2가 tool을 기다리는 반면 OWL은 3분의
-1이고, 기다리는 시간도 중앙값 기준 네 배(1.5초 대 0.4초) 깁니다. 그동안 두 시스템 모두 GPU
-근처에도 가지 않습니다.
+1이고, 기다리는 시간도 중앙값 기준 네 배(1.5초 대 0.4초) 깁니다.
 
-다만 prompt token과 output token의 비용은 다릅니다. 우리가 simulation하는 replica에서
+다만 prompt token과 output token의 비용은, 앞선 강의들에서 배웠듯 서로 다릅니다.
+우리가 simulation하는 replica에서
 prompt token 하나는 약 0.25 ms의 GPU 시간이 드는 반면, output token 하나는 약 45 ms, 거의
 200배입니다. Decode가 memory-bound이기 때문이죠(1강). Prompt 9,000 token에 output 180
 token인 turn은 prompt에 2초 남짓, 답변에 8초를 씁니다. 그러니 prefill 중심이라고 해서 늘

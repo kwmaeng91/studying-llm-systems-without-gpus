@@ -35,7 +35,8 @@
 # ([Hu et al., NeurIPS '25](https://arxiv.org/abs/2505.23885)), a multi-agent system,
 # and [MiroThinker](https://github.com/MiroMindAI/MiroThinker), a single agent with a
 # summariser. We take them one at a time, the single agent first, because its
-# traffic is the easier of the two to reason about. Each request carries its prompt and output token ids,
+# traffic is the easier of the two to reason about. Each request carries its prompt
+# and output token ids,
 # the turns it depended on, and a separately measured tool latency. The traces ship
 # with the simulator, so they are already on your disk after `lsg.setup()`.
 # We are also in the process of extending GAIATrace to more setups and datasets!
@@ -82,7 +83,8 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # [MiroThinker](https://github.com/MiroMindAI/MiroThinker) is a **single agent**
 # running a **ReAct** loop ([Yao et al., ICLR '23](https://arxiv.org/abs/2210.03629)).
 # ReAct is the pattern many agents are built on: instead of answering in one shot,
-# the model alternates between *reasoning* (i.e., setting plans) and *acting* (i.e., emitting a tool call). The
+# the model alternates between *reasoning* (i.e., setting plans) and *acting*
+# (i.e., emitting a tool call). The
 # tool's result is appended to the conversation, the model reasons again, and the
 # loop repeats until it answers. Everything stays in one conversation.
 #
@@ -105,9 +107,10 @@ miro.drop(columns="token_ids").head(8)
 # - `session` / `turn`: which task, and the position in it.
 # - `role`: which agent inside the system issued it — here only `main` (the agent
 #   itself) and `summarizer`.
-# - `model`: which model served the request in the recording. MiroThinker is a finetuned Qwen-based model,
-#    and the summariser uses to gpt-4o-mini. This
-#   is just how the authors of GAIATrace (that's me and my students!) ran it, and there can be different model choices.
+# - `model`: which model served the request in the recording. MiroThinker is a
+#   finetuned Qwen-based model, and the summariser uses gpt-4o-mini. This is just
+#   how the authors of GAIATrace (that's me and my students!) ran it, and there can
+#   be different model choices.
 # - `dep`: the turns that must finish before this one is released.
 # - `tool_time`: how long the tool call that this turn waited for actually took,
 #   measured by re-running the tool outside the agent.
@@ -148,9 +151,12 @@ show(miro, 3, 0, head=620, out=380)
 # %% [markdown]
 # The prompt opens with the system prompt: the rules of the loop ("You can only use
 # one tool per message, and will receive the result of that tool in the user's next
-# response") and the tool definitions, followed by the user's task ("we have a 5-man WoW group: 1 tank, 1 healer, 3 DPS. Two are plate wearers..."). The model answers
-# with its reasoning. This is the "reason" half of ReAct, and it is expensive: 1,556
-# output tokens of thinking before anything is called.
+# response") and the tool definitions, followed by the user's task ("A 5-man group
+# made up of one tank, one healer, and three DPS is doing a dungeon that was just
+# released in World of Warcraft. Two are plate wearers and two are cloth
+# wearers..."). The model answers with its reasoning. This is the "reason" half of
+# ReAct, and it is expensive: 1,556 output tokens of thinking before anything is
+# called.
 #
 # The next turn is the "act" half, and shows how the result comes back:
 
@@ -211,9 +217,9 @@ one_miro = miro[miro.session == MIRO_SESSION]
 session_plot(one_miro, f"MiroThinker: task {MIRO_SESSION}, {len(one_miro)} LLM requests")
 
 # %% [markdown]
-# Each dot is a request to either the main (MiroThinker model) or summarizer model, and when the agent uses a tool,
-# the bar shows the tool execution time. The prompt length (y-axis of each dot) grows 
-# in a staircase, exactly as the excerpts
+# Each dot is a request to either the main (MiroThinker model) or summarizer model,
+# and when the agent uses a tool, the bar shows the tool execution time. The prompt
+# length (y-axis of each dot) grows in a staircase, exactly as the excerpts
 # above suggest: each turn is the previous turn plus the tool result, so the prompt
 # only ever grows — about 3,100 tokens at the start and 22,000 thirty-four turns
 # later. This is the shape that papers on agent serving usually report, and it is
@@ -300,7 +306,8 @@ session_plot(one, f"OWL: task {OWL_SESSION}, {len(one)} LLM requests")
 
 # %% [markdown]
 # Compare this with MiroThinker's staircase.
-# The prompt length (y-axis of each dot) grows inside a stretch of turns and then drops, instead of growing monotonically: each time the
+# The prompt length (y-axis of each dot) grows inside a stretch of turns and then
+# drops, instead of growing monotonically: each time the
 # coordinator hands a subtask to a fresh worker, that worker starts a new
 # conversation with its own system prompt. Within a worker's stretch, every turn
 # adds a tool result to the prompt. Again, this is how OWL was designed and not necessarily universal.
@@ -308,10 +315,12 @@ session_plot(one, f"OWL: task {OWL_SESSION}, {len(one)} LLM requests")
 # The flat band of twelve large turns in the middle is the web worker retrieving a long page, splitting it into twelve
 # pieces, and asking the model to summarise each piece in parallel.
 # This is again a specific design
-# made by the OWL authors to keep the prompt (prefill) length small and is not fundamental (MiroThinker simply uses one summarizer agent call).
+# made by the OWL authors to keep the prompt (prefill) length small and is not
+# fundamental (MiroThinker simply uses one summarizer agent call).
 # You don't have to understand every piece that is happening in this plot, and many things are specific to the
 # particular design of this agent; having a sense
-# that multi-agent systems are more complex than a ReAct-style agent like Mirothinker is probably enough.
+# that multi-agent systems are more complex than a ReAct-style agent like
+# MiroThinker is probably enough.
 #
 # :::{admonition} Try it
 # :class: exercise
@@ -360,10 +369,12 @@ ax[2].legend(fontsize=8)
 fig.tight_layout()
 
 # %% [markdown]
-# Both systems are **prefill-heavy**, and the single agent much more so: the prompt token to output token ratio is 30:1 for MiroThinker and 11:1 for OWL.
+# Both systems are **prefill-heavy**, and the single agent much more so: the prompt
+# token to output token ratio is 30:1 for MiroThinker and 11:1 for OWL.
 # The reason is visible in the
 # scatter plots. MiroThinker has two clouds: a main agent whose prompt grows along
-# the conversation, and a summariser that usually takes in long input and produces a short output.
+# the conversation, and a summariser that usually takes in long input and produces
+# a short output.
 # OWL's sub-agents form distinct clusters from each other — the
 # coordinator answers with a worker id, the web-search worker emits a tool call of a
 # few dozen tokens, the summariser reads a page chunk — and all of them are smaller,
@@ -373,7 +384,8 @@ fig.tight_layout()
 # against a third of OWL's, and MiroThinker's waits are four times longer at the
 # median (1.5 s against 0.4 s).
 #
-# Prompt and output tokens cost differently, as we learned in our earlier lectures. A prompt token costs roughly
+# Prompt and output tokens cost differently, as we learned in our earlier lectures.
+# A prompt token costs roughly
 # 0.25 ms of GPU time on our simulated replica, while an output token costs about
 # 45 ms — nearly 200× more — because decode is memory-bound (lecture 1). A turn
 # with 9,000 prompt tokens and 180 output tokens spends a couple of seconds on its
