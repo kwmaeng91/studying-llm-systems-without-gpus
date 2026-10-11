@@ -50,9 +50,10 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=2)
 
 # %% [markdown]
-# We load the same 24 OWL tasks as last lecture, and 24 MiroThinker tasks. 
-# Again, our simulator cannot simulate long inputs and outputs, as it is stripped-down for
-# this lecture series. Thus, we exclude traces with too long inputs and outputs.
+# We load the same 24 OWL tasks as last lecture, and 24 MiroThinker tasks.
+# Again, our simulator cannot simulate very long inputs and outputs, as it is
+# stripped-down for this lecture series. Thus, we exclude traces whose inputs and
+# outputs are too long (`max_tokens` below).
 # This mostly affects MiroThinker numbers, as it uses much longer inputs.
 
 # %%
@@ -113,8 +114,7 @@ pd.DataFrame({role: {"prompt tokens": g.num_prefill_tokens.sum(),
 # one conversation that only ever appends, so almost every prompt is the previous
 # prompt plus a little. The summariser is at ~0%. Each of its calls is a different
 # scraped page behind the same short instruction, so there is nothing to reuse but
-# the instruction itself, which
-# drags the system-wide number down to 71%. A paper that only instruments the main
+# the instruction itself, and that drags the system-wide number down to 71%. A paper that only instruments the main
 # agent would report 87% for the very same system.
 #
 # OWL is lower again, at 60%, for a related reason: as a multi-agent system it runs
@@ -259,8 +259,8 @@ timeline(sessions, 4, "OWL: one task on the GPU; the gaps are tool calls")
 # With a lower prefix cache hit rate and many other requests on the same GPU, the bars will look different
 # (because prefill cannot be batched as nicely as decode, as we learned in lecture 2).
 # Again, the twelve parallel tasks in the middle are OWL trying to summarize a very long web-scraped
-# text by splitting it into twelve pieces, which is the strategy that OWL's authors took to not significantly increase the context length
-# of each request.
+# text by splitting it into twelve pieces, which is the strategy that OWL's authors
+# took to not significantly increase the context length of each request.
 #
 # Note that the decode times summed over the turns (364 s) exceed the task's own
 # 320 s: that is only possible because some turns ran at the same time. The 120 s of
@@ -278,8 +278,8 @@ timeline(miro, miro.groupby("session").size().idxmax(),
 #
 # :::{admonition} Try it
 # :class: exercise
-# 1. Add up the white gaps in the MiroThinker timeline. If you could serve other
-#    tasks during them, how many such tasks would it take to keep the replica busy?
+# Add up the white gaps in the MiroThinker timeline. If you could serve other
+# tasks during them, how many such tasks would it take to keep the replica busy?
 # :::
 #
 # ## Summary
@@ -291,6 +291,10 @@ timeline(miro, miro.groupby("session").size().idxmax(),
 # | Prefix caching | 6--10× better TTFT, but only a quarter to a third off the task, because decode and tools are untouched |
 # | Queueing | caching does not help a fan-out whose siblings wait for each other |
 # | A single-agent task | one request in flight, almost no queueing, and long idle gaps that only *other* tasks can fill |
+#
+# {doc}`08-scheduling-agentic-workloads` puts many of these tasks on a cluster at
+# once, where those gaps are someone else's work and the queue order starts to
+# matter.
 #
 # ## Check your understanding
 #

@@ -88,16 +88,25 @@ Simulator를 `$LSG_BACKEND_DIR`(기본값 `~/.llm-systems-wo-gpus/backend`)에 �
 
 ## 기록된 agent trace
 
-`gaia_sessions(num_sessions=20, max_tokens=None, seed=0) → DataFrame`은
-[GAIATrace](https://github.com/psu-paws/Vidur-Agent)로 기록된 실제 multi-turn agent
-session을 불러옵니다(simulator와 함께 내려받습니다). LLM 요청당 한 행이고 열은 `session`,
-`turn`, `role`, `dep`, `num_prefill_tokens`, `num_decode_tokens`, `tool_time`,
-`token_ids`입니다. `max_tokens`보다 긴 요청이 들어 있는 session은 건너뜁니다.
+`gaia_sessions(num_sessions=20, max_tokens=16384, seed=0, agent="owl") → DataFrame`은
+[GAIATrace](https://github.com/psu-paws/Vidur-Agent)로 기록된 실제 agent session을
+불러옵니다(simulator와 함께 내려받습니다). LLM 요청당 한 행이고 열은 `session`,
+`turn`, `role`(시스템 안의 어떤 agent가 낸 요청인지), `model`(기록 당시 어떤 모델이
+처리했는지), `dep`, `num_prefill_tokens`, `num_decode_tokens`, `tool_time`,
+`token_ids`입니다. `agent`로 기록된 시스템을 고릅니다. `"owl"`(multi-agent) 또는
+`"mirothinker"`(ReAct 스타일 단일 agent + 요약기)입니다. `max_tokens`보다 긴 요청이 들어
+있는 session은 건너뛰고, `max_tokens=None`을 주면 모든 session을 그대로 둡니다
+(simulation 없이 trace만 들여다볼 때 유용합니다).
 
-`gaia_trace(sessions) → Path`는 그 행들을 `simulate`용 trace CSV로 씁니다.
+`gaia_trace(sessions, name=None) → Path`는 그 행들을 token id와 의존 그래프까지 포함해
+`simulate`용 trace CSV로 씁니다.
 
-`decode(token_ids) → str`은 기록된 token id를 다시 텍스트로 바꿉니다(처음 쓸 때
-`tiktoken`을 설치합니다).
+`decode(token_ids, tokenizer=None) → str`은 기록된 token id를 다시 텍스트로 바꿉니다.
+이 corpus에는 tokenizer가 둘 있습니다. OWL의 요청과 MiroThinker의 요약기는 OpenAI의
+`o200k_harmony`로, MiroThinker 자신의 요청은 Qwen의 tokenizer로 기록되었습니다. 그래서
+해당 행의 `model` 값(또는 `"openai"` / `"qwen"`)을 넘기면 됩니다. 생략하면 첫 token id로
+추측하는데, 이는 요청 전체일 때만 맞습니다. 처음 쓸 때 `tiktoken`이나 `tokenizers`를
+설치하고, Qwen의 vocabulary(약 7 MB)를 내려받습니다.
 
 ## `quiz(questions) → HTML`
 

@@ -89,17 +89,26 @@ sequence of length `n`, describe multi-turn sessions:
 
 ## Recorded agent traces
 
-`gaia_sessions(num_sessions=20, max_tokens=None, seed=0) → DataFrame` loads real
-multi-turn agent sessions recorded with
+`gaia_sessions(num_sessions=20, max_tokens=16384, seed=0, agent="owl") → DataFrame`
+loads real agent sessions recorded with
 [GAIATrace](https://github.com/psu-paws/Vidur-Agent) (downloaded with the
-simulator), one row per LLM request: `session`, `turn`, `role`, `dep`,
-`num_prefill_tokens`, `num_decode_tokens`, `tool_time`, `token_ids`. Sessions
-containing a request longer than `max_tokens` are skipped.
+simulator), one row per LLM request: `session`, `turn`, `role` (which agent inside
+the system issued it), `model` (which model served it in the recording), `dep`,
+`num_prefill_tokens`, `num_decode_tokens`, `tool_time`, `token_ids`. `agent` picks
+the recorded system: `"owl"` (multi-agent) or `"mirothinker"` (a single ReAct-style
+agent plus a summariser). Sessions containing a request longer than `max_tokens`
+are skipped; pass `max_tokens=None` to keep every session, which is useful for
+looking at a trace without simulating it.
 
-`gaia_trace(sessions) → Path` writes those rows as a trace CSV for `simulate`.
+`gaia_trace(sessions, name=None) → Path` writes those rows as a trace CSV for
+`simulate`, token ids and dependency graph included.
 
-`decode(token_ids) → str` turns recorded token ids back into text (installs
-`tiktoken` on first use).
+`decode(token_ids, tokenizer=None) → str` turns recorded token ids back into text.
+The corpus carries two tokenizers: OWL's requests and MiroThinker's summariser were
+recorded in OpenAI's `o200k_harmony`, MiroThinker's own requests in Qwen's. Pass the
+row's `model` value (or `"openai"` / `"qwen"`); left out, it is guessed from the
+first token id, which only works on a whole request. Installs `tiktoken` or
+`tokenizers`, and downloads Qwen's vocabulary (~7 MB), on first use.
 
 ## `quiz(questions) → HTML`
 
