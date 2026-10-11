@@ -117,7 +117,8 @@ batch-size 상한), 요청 하나는 TPOT 한 번 정도가 걸리는 step을 `d
 도착률을 추정하고 위 그래프의 knee와 비교해 보세요. 추정이 실제 결과와 맞나요?
 그다음 (a) `decode_tokens=128`, (b) `batch_size_cap=64`(`lsg.sweep`과 `lsg.simulate`에
 넘길 수 있는 인자)일 때에 대해서도 같은 방식으로 knee를 추정하고, sweep을 다시 돌려
-확인해 보세요.
+확인해 보세요. (팁: `online` sweep 결과는 아래에서 다시 쓰니 덮어쓰지 마세요. 새로 돌린
+sweep은 각각 별도 변수에 담으세요.)
 :::
 <!-- cell -->
 ### p50보다 p99가 먼저 나빠진다
@@ -133,6 +134,8 @@ TTFT와 TPOT은 둘 다 중요하고, 각각 자기 목표를 지켜야 합니�
 지루해하지 않도록 200–500 ms 아래, TPOT은 보통의 읽는 속도를 따라가도록 50–100 ms
 아래여야 한다고들 합니다. 이를 한 숫자로 요약하는 흔한 방법이 **goodput**입니다.
 service-level objective (SLO)를 여전히 만족하는 가장 높은 부하를 말합니다.
+**참고: 위 연습문제에서 제 팁을 따르지 않고 `online`을 덮어썼다면, 위의 sweep 셀을 먼저
+다시 돌리세요**:
 <!-- cell -->
 :::{admonition} 직접 해보기
 :class: exercise

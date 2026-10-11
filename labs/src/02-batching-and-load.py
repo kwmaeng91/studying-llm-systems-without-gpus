@@ -216,7 +216,8 @@ fig.tight_layout()
 # 256-token outputs, and compare it with the knee above. Does your estimate match
 # the empirical result? Then repeat the estimate, and check it by rerunning the
 # sweep, for (a) `decode_tokens=128`, and (b) `batch_size_cap=64` (an argument you
-# can pass to `lsg.sweep` and `lsg.simulate`).
+# can pass to `lsg.sweep` and `lsg.simulate`). (Tip: do not overwrite the `online`
+# sweep, as we use it below; give each new sweep a variable of its own.)
 # :::
 
 # %% [markdown]
@@ -235,6 +236,8 @@ fig.tight_layout()
 # bored, and TPOT below 50–100 ms to keep up with a typical reading speed.
 # A common way to summarize this is **goodput**: the highest load at which
 # the service-level objective (SLO) still holds.
+# **Note: if you did not follow my tip in the exercise above and overwrote
+# `online`, rerun the sweep cell above first**:
 
 # %%
 slo_ttft_ms, slo_tpot_ms = 500, 50

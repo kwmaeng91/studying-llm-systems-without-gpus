@@ -487,6 +487,10 @@ fig.tight_layout()
 #    `chunk_size` for p99 TPOT change?
 # 2. Suppose your SLO is p99 TTFT < 2 s **and** p99 TPOT < 100 ms. Find the largest
 #    `qps` you can sustain, and the `chunk_size` that achieves it.
+#
+# (Tip: do not overwrite `trace`, `n` or `res`, as we use them below. Build the
+# document-heavy workload into variables of its own, and give its trace a different
+# `name` so it gets its own trace file.)
 # :::
 #
 # ## TPOT vs. TBT: what the average hides
@@ -508,6 +512,8 @@ fig.tight_layout()
 # compute them from the recorded steps: under this load the GPUs are never idle, so
 # the steps run back to back, and every request receives one token per step between
 # its first token and its last. Its TBTs are simply the durations of those steps.
+# **Note: if you did not follow my tip in the exercise above and overwrote `trace`
+# with the 40%-document workload, regenerate the 15% one first**:
 
 # %%
 loaded = {c: lsg.simulate(**SYSTEM, trace=trace, num_requests=n, qps=4, chunk_size=c,

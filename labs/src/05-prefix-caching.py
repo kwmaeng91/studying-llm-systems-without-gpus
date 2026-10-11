@@ -371,10 +371,13 @@ pd.DataFrame({k: {**r.summary()[cols], "prompt tokens computed": r.requests["req
 # compare `throughput (tok/s)` and `total execution time (s)` with caching off and
 # on. The gain is real, but nowhere near 83%. Account for the gap: every turn still
 # has to decode its 200 output tokens one step at a time, and caching does not touch
-# decode.
+# decode. (Tip: do not overwrite `runs`, as we use it right below; keep the `qps=8`
+# results in a variable of their own.)
 # :::
 #
 # The gain is not spread evenly over the conversation. Let's look per turn.
+# **Note: if you did not follow my tip above and overwrote `runs`, rerun the
+# comparison cell at `qps=1.0` first**:
 
 # %%
 hit = runs["prefix caching on"].requests.copy()
@@ -472,7 +475,10 @@ pd.DataFrame(layout).T.round(2)
 # Rebuild the traces at 32 (TensorRT-LLM's) and at an exaggerated 256, and compare
 # hit rates. Which loses more from coarse blocks: the multi-turn workload or this
 # shared-preamble one? Why would anyone still want a larger block, given what the
-# lecture said about moving blocks between memory tiers?
+# lecture said about moving blocks between memory tiers? (Tip: the next section
+# builds its workload with `chat_trace` too, so give the function a `block_size`
+# argument that still defaults to 16 rather than changing the 16 in place, and give
+# each rebuilt trace its own `name`.)
 # :::
 #
 # ## The cache is finite

@@ -138,6 +138,9 @@ pd.DataFrame({role: {"prompt tokens": g.num_prefill_tokens.sum(),
 #    does that say about tuning a system to one trace?
 # 2. Do the same per-role split for OWL. Which worker would you quote if you wanted
 #    to publish the most flattering hit rate, and which one is the real problem?
+#
+# (Tip: do not overwrite `sessions` or `miro`, as the rest of the lecture serves
+# exactly these two samples. Load the larger ones into variables of their own.)
 # :::
 #
 # ## Serving the trace

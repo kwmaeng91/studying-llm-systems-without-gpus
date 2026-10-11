@@ -275,9 +275,13 @@ replica가 실제로 바빠지는 지점입니다. 여기서 caching을 끈 경�
 `throughput (tok/s)`와 `total execution time (s)`를 비교해 보세요. 이득은 분명히 있지만
 83% 근처에는 턱없이 못 미칩니다. 그 차이를 설명해 보세요. 모든 turn은 여전히 output
 token 200개를 한 step에 하나씩 decode해야 하고, caching은 decode를 건드리지 못합니다.
+(팁: `runs`는 바로 아래에서 다시 쓰니 덮어쓰지 마세요. `qps=8` 결과는 별도 변수에
+담으세요.)
 :::
 
 이득이 대화 전체에 고르게 퍼지는 것은 아닙니다. Turn별로 봅시다.
+**참고: 위에서 제 팁을 따르지 않고 `runs`를 덮어썼다면, `qps=1.0`으로 비교하는 셀을 먼저
+다시 돌리세요**:
 <!-- cell -->
 Caching이 없으면 대화는 turn이 지날수록 비싸집니다. Prompt가 자라니 TTFT도 자라죠.
 Caching이 있으면 prompt에서 *계산되는* 부분이 평평합니다. 언제나 새로운 400 token뿐이고,
@@ -329,7 +333,9 @@ system prompt, 그다음 대화 — 조립되므로, 고정된 tool 목록과 �
 32(TensorRT-LLM의 값)와, 과장해서 256으로 다시 만들어 hit rate를 비교해 보세요. 굵은
 block에서 더 많이 손해 보는 쪽은 여러 turn짜리 workload인가요, 지금 이 공유 preamble
 workload인가요? Block을 메모리 계층 사이로 옮기는 이야기를 떠올리면, 그래도 큰 block을
-원할 이유는 무엇일까요?
+원할 이유는 무엇일까요? (팁: 다음 절도 `chat_trace`로 workload를 만듭니다. 그러니 코드의
+16을 직접 고치지 말고, 기본값이 16인 `block_size` 인자를 함수에 추가하고, 다시 만든
+trace에는 각각 다른 `name`을 주세요.)
 :::
 
 ## Cache는 유한하다

@@ -256,12 +256,19 @@ print(f"memory bound {1e3 * bound:.1f} ms, compute bound "
 #    then check. (Note: if you want to rerun other analyses from above with the
 #    changed model or GPUs, make sure to change the hardcoded numbers in the code
 #    as well, or they will not give the correct result.)
+#
+# (Tip: both of these change the system under test, while the rest of the lecture
+# reuses `SYSTEM` and `n_gpus` as they are set above. Keep each new setup in a
+# variable of its own, e.g. `SYSTEM_8B = dict(...)`, or set `SYSTEM` back to
+# `tensor_parallel=2` and `n_gpus = 2` before you continue.)
 # :::
 #
 # ## Decode scales with the output
 #
 # With the prompt fixed, E2E latency is a straight line in the number of output
 # tokens, and its slope is the TPOT.
+# **Note: if you did not follow the tip in the exercise above and changed `SYSTEM`,
+# set it back to `tensor_parallel=2` (and `n_gpus = 2`) before continuing**:
 
 # %%
 out = lsg.sweep("decode_tokens", [16, 64, 128, 256, 512, 1024],

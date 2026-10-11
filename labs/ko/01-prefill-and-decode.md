@@ -171,12 +171,18 @@ $2 \times 64\ \text{layer} \times 8\ \text{KV head} \times 128 \times 2\ \text{B
    TB/s)밖에 되지 않습니다. TTFT와 TPOT이 각각 얼마나 좋아질지 예상하고 확인해 보세요.
    (참고: 바뀐 모델이나 GPU로 위의 다른 분석들을 다시 돌리고 싶다면, 코드에 하드코딩된
    숫자들도 함께 바꿔야 올바른 결과가 나옵니다.)
+
+(팁: 두 문제 모두 실험 대상 시스템 자체를 바꾸는데, 이 강의의 나머지는 위에서 정한
+`SYSTEM`과 `n_gpus`를 그대로 다시 씁니다. 새 설정은 `SYSTEM_8B = dict(...)`처럼 별도
+변수에 담거나, 계속하기 전에 `SYSTEM`을 `tensor_parallel=2`로, `n_gpus`를 2로 되돌리세요.)
 :::
 
 ## Decode는 output 길이에 비례한다
 
 Prompt를 고정하면 E2E latency는 output token 수에 대한 직선이 되고, 그 기울기가
 TPOT입니다.
+**참고: 위 연습문제에서 팁을 따르지 않고 `SYSTEM`을 바꿨다면, 계속하기 전에
+`tensor_parallel=2`(그리고 `n_gpus = 2`)로 되돌리세요**:
 <!-- cell -->
 ## 시간은 어디에 쓰이나
 
