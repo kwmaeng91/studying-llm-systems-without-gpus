@@ -92,6 +92,8 @@ decode step만 돌리는 decode replica입니다. 바로 이 분리가 TPOT을 �
 :class: exercise
 **더 짧은 문서.** `mixed_trace`에서 문서 길이를 3,800에서 1,000 token으로 바꾸고 이 정면
 승부를 다시 돌려 보세요. Disaggregation이 여전히 TPOT을 그만큼 개선하나요? 왜 그럴까요?
+(팁: `trace` 변수는 아래에서 다시 쓰니 덮어쓰지 마세요. 대신 새로 하나 만들고, `name`도
+다르게 주어 별도의 trace 파일이 되도록 하세요.)
 :::
 
 ## 각 pool을 따로 튜닝하기
@@ -100,7 +102,9 @@ decode step만 돌리는 decode replica입니다. 바로 이 분리가 TPOT을 �
 것이죠. 3강에서는 token 예산 하나가 상충하는 두 목표를 동시에 만족시켜야 했습니다.
 Prefill replica에는 보호해야 할 decode 사용자가 없으므로, 큰 예산을 써서 가능한 한 적은
 step으로 prompt를 prefill할 수 있습니다. Prefill pool을 3강의 예산(512)과 큰
-예산(4,096, 우리 helper의 기본값)으로 비교해 봅시다:
+예산(4,096, 우리 helper의 기본값)으로 비교해 봅시다.
+**참고: 위 연습문제에서 제 팁을 따르지 않고 `trace`를 1,000 token짜리 문서로 덮어썼다면,
+3,800 token짜리 문서로 trace를 다시 만들고 진행하세요**:
 <!-- cell -->
 큰 예산은 TPOT을 전혀 희생하지 않고 중앙값 TTFT를 거의 절반으로 줄입니다. 실제
 시스템에서는 이 아이디어가 더 멀리 갑니다. 두 pool이 서로 다른 parallelism을, 심지어 서로
