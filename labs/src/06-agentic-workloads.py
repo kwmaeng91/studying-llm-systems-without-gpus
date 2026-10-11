@@ -34,7 +34,8 @@
 # corpus covers [OWL](https://github.com/camel-ai/owl)
 # ([Hu et al., NeurIPS '25](https://arxiv.org/abs/2505.23885)), a multi-agent system,
 # and [MiroThinker](https://github.com/MiroMindAI/MiroThinker), a single agent with a
-# summariser. We look at both. Each request carries its prompt and output token ids,
+# summariser. We take them one at a time, the single agent first, because its
+# traffic is the easier of the two to reason about. Each request carries its prompt and output token ids,
 # the turns it depended on, and a separately measured tool latency. The traces ship
 # with the simulator, so they are already on your disk after `lsg.setup()`.
 # We are also in the process of extending GAIATrace to more setups and datasets!
@@ -75,29 +76,39 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=2)
 
 # %% [markdown]
-# `lsg.gaia_sessions` loads recorded sessions, one row per LLM request. We take 24
-# of them out of the 165 tasks OWL ran. Sessions containing a request longer than
-# the course's runtime predictor was fitted for are skipped, which removes the
-# largest tasks (again, this course uses a downsized simulator for simplicity).
+# ## A single agent: MiroThinker
+#
+# We start with the simpler of the two systems.
+# [MiroThinker](https://github.com/MiroMindAI/MiroThinker) is a **single agent**
+# running a **ReAct** loop ([Yao et al., ICLR '23](https://arxiv.org/abs/2210.03629)).
+# ReAct is the pattern most agents are built on: instead of answering in one shot,
+# the model alternates between *reasoning* ("I need to know which class can wear
+# this item") and *acting* (emitting a tool call, here in MCP's XML form). The
+# tool's result is appended to the conversation, the model reasons again, and the
+# loop repeats until it answers. Everything stays in one conversation.
+#
+# MiroThinker adds one helper to that loop. When a tool returns something very
+# long, such as a scraped web page, a separate and cheaper **summariser** model is
+# asked to pull out the relevant part first, and only its answer enters the agent's
+# context.
+#
+# `lsg.gaia_sessions` loads recorded sessions, one row per LLM request. We take two
+# dozen MiroThinker tasks. These contain requests far longer than the course's
+# runtime predictor covers, so we pass `max_tokens=None`: in this lecture we only
+# look at the traces, and the next one simulates them.
 
 # %%
-sessions = lsg.gaia_sessions(num_sessions=24, seed=0)
-print(f"{sessions.session.nunique()} sessions, {len(sessions)} LLM requests")
-sessions.drop(columns="token_ids").head(8)
+miro = lsg.gaia_sessions(num_sessions=24, seed=0, agent="mirothinker", max_tokens=None)
+print(f"{miro.session.nunique()} sessions, {len(miro)} LLM requests")
+miro.drop(columns="token_ids").head(8)
 
 # %% [markdown]
-# The table gives a peek at how OWL solves a particular question.
-# Each row is one request to the model, which does the planning, coordination, web search, and so on.
-# Note that two models are used here: gpt-4o for tasks that do not require heavy thinking, and gpt-oss-120b for
-# tasks that require thinking. This is just how the authors of GAIATrace (that's me and my students!) decided to do it.
-#
 # - `session` / `turn`: which task, and the position in it.
-# - `role`: which agent inside the system issued it. OWL is a *multi-agent* system:
-#   a planner splits the task, a coordinator assigns each subtask to a worker, and
-#   the workers (web search, code, browser, document reader) do it.
-# - `model`: which model served the request in the recording. OWL uses two, which
-#   GAIATrace calls the *main* and *sub* models, and gives each a different set of
-#   roles.
+# - `role`: which agent inside the system issued it — here only `main` (the agent
+#   itself) and `summarizer`.
+# - `model`: which model served the request in the recording. MiroThinker's own
+#   requests went to a Qwen-based model, and the summariser's to gpt-4o-mini. This
+#   is just how the authors of GAIATrace (that's me and my students!) ran it.
 # - `dep`: the turns that must finish before this one is released.
 # - `tool_time`: how long the tool call that this turn waited for actually took,
 #   measured by re-running the tool outside the agent.
@@ -106,23 +117,25 @@ sessions.drop(columns="token_ids").head(8)
 # The traces are released under CC-BY-4.0 as part of GAIATrace. The tasks
 # themselves come from the GAIA benchmark, whose
 # [dataset terms](https://huggingface.co/datasets/gaia-benchmark/GAIA) govern its
-# questions; what follows are short excerpts from one recorded run, shown so you
+# questions; what follows are short excerpts from recorded runs, shown so you
 # can see what a real agent prompt is made of.
 # :::
 #
-# ## What the model actually sees
+# ### What the model actually sees
 #
-# The traces carry token ids, so we can read the requests back. Let's look at the
-# first turns of one session. (`lsg.decode` uses the same tokenizer the traces were
-# built with; it downloads a small vocabulary file the first time.)
+# The traces carry token ids, so we can read the requests back. (`lsg.decode` uses
+# the tokenizer each model was recorded with — the `model` column tells it which —
+# and downloads a vocabulary file the first time.) Let us follow one task: a
+# question about which World of Warcraft class could wear a piece of loot.
 
 # %%
-def show(i, head=0, tail=0, out=400):
-    """Print a trimmed view of request i's prompt and of what the model generated."""
-    r = sessions.iloc[i]
+def show(df, session, turn, head=0, tail=0, out=400):
+    """Print a trimmed view of one request's prompt and of what the model generated."""
+    r = df[(df.session == session) & (df.turn == turn)].iloc[0]
     ids = json.loads(r.token_ids)
-    prompt, output = lsg.decode(ids[:r.num_prefill_tokens]), lsg.decode(ids[r.num_prefill_tokens:])
-    print(f"=== session {r.session} turn {r.turn} | role: {r.role} | "
+    prompt = lsg.decode(ids[:r.num_prefill_tokens], tokenizer=r.model)
+    output = lsg.decode(ids[r.num_prefill_tokens:], tokenizer=r.model)
+    print(f"=== session {r.session} turn {r.turn} | role: {r.role} | model: {r.model} | "
           f"{r.num_prefill_tokens:,} prompt + {r.num_decode_tokens} output tokens "
           f"| tool wait before it: {r.tool_time:.1f} s")
     if head:
@@ -131,48 +144,52 @@ def show(i, head=0, tail=0, out=400):
         print("--- prompt, last lines " + "-" * 41); print(prompt[-tail:].strip())
     print("--- generated " + "-" * 50); print(output[:out].strip(), "\n")
 
-show(0, head=620, out=560)
+show(miro, 3, 0, head=620, out=380)
 
 # %% [markdown]
-# That is the planner: it receives the user's task ("I went to Virtue restaurant & bar ...") and a description of the
-# available workers, and emits a list of subtasks. Everything is marked up with
-# the model's chat template (`<|start|>`, `<|message|>`, `<|end|>`); the
-# `<|channel|>final` and `<|channel|>analysis` markers separate the answer from the
-# model's own reasoning.
+# The prompt opens with the system prompt: the rules of the loop ("You can only use
+# one tool per message, and will receive the result of that tool in the user's next
+# response") and the tool definitions, followed by the user's task. The model answers
+# with its reasoning. This is the "reason" half of ReAct, and it is expensive: 1,556
+# output tokens of thinking before anything is called.
 #
-# Two turns later, a web-search worker decides to call a tool. Its entire output is
-# 36 tokens of JSON — the call itself:
+# The next turn is the "act" half, and shows how the result comes back:
 
 # %%
-show(2, out=300)
+show(miro, 3, 1, tail=620, out=330)
 
 # %% [markdown]
-# The agent executes that call, which takes 1.2 s, and sends the *result back as
-# part of the next prompt*. Here is the end of the next request's prompt, which is
-# exactly the previous prompt, plus the previous output, plus the tool result:
+# The prompt now ends with the JSON the search tool returned, wrapped as a user
+# message, and the model replies with another `<use_mcp_tool>` call. Nothing is
+# remembered between requests, so **every turn re-sends the entire conversation**
+# plus the newest tool result. That is why the prompt grows from 2,879 tokens to
+# 5,460 in one turn, and it is the exact condition lecture 5 said a prefix cache
+# needs: almost every prompt is an earlier prompt with text appended.
+#
+# One of those tool results is a 29,000-character web page, which is where the
+# summariser comes in:
 
 # %%
-show(3, tail=430, out=330)
+show(miro, 3, 3, head=400, out=300)
 
 # %% [markdown]
-# This is the mechanism behind everything in this lecture. Nothing is remembered
-# between requests, so each turn re-sends the whole conversation, and the prompt
-# grows along a branch until that worker is done. Almost every prompt is some
-# earlier prompt with text appended to it, which is the exact condition lecture 5
-# said a prefix cache needs.
+# The summariser is a different request to a different model: it receives the whole
+# scraped page (8,930 tokens) together with a one-line statement of what to look
+# for, and returns 59 tokens. Those 59 tokens are what the agent sees — the next
+# `main` turn's prompt ends with exactly this text:
+
+# %%
+show(miro, 3, 4, tail=420, out=200)
+
+# %% [markdown]
+# So the single agent's traffic is really two kinds of request: a conversation that
+# grows by one tool result at a time, and occasional very long, one-off summarisation
+# calls that keep the conversation from growing even faster.
 #
-# ## The shape of an agent session
+# ### The shape of a session
 #
-# The two recorded systems do not look alike, so let's take the simpler one first.
-# MiroThinker is a single agent in a ReAct-style loop — think, call a tool, read
-# the result, think again — with one helper: when a tool returns something very
-# long, such as a scraped web page, a separate **summariser** model is asked to
-# compress it before it enters the agent's context.
-#
-# We load two dozen recorded MiroThinker tasks and plot the longest one. (These
-# sessions contain requests far longer than the course's runtime predictor covers,
-# so we pass `max_tokens=None`: we are only looking at the trace, not simulating
-# it.)
+# Let us look at a whole task at once: how the prompt grows, which role issues each
+# turn, and where the tool time goes.
 
 # %%
 def session_plot(df, title):
@@ -190,44 +207,110 @@ def session_plot(df, title):
     ax.legend(fontsize=8, ncol=3, loc="upper left")
     fig.tight_layout()
 
-miro = lsg.gaia_sessions(num_sessions=24, seed=0, agent="mirothinker", max_tokens=None)
-one_miro = miro[miro.session == miro.groupby("session").size().idxmax()]
-session_plot(one_miro, f"MiroThinker: one task, {len(one_miro)} LLM requests")
+MIRO_SESSION = 17        # any task id in the sample: 0-23
+one_miro = miro[miro.session == MIRO_SESSION]
+session_plot(one_miro, f"MiroThinker: task {MIRO_SESSION}, {len(one_miro)} LLM requests")
 
 # %% [markdown]
-# The agent's own requests (`main`) climb in a staircase: each turn is the previous
-# turn plus the tool result, so the prompt only ever grows — about 3,100 tokens at
-# the start and 22,000 thirty-four turns later. This is the shape that papers on
-# agent serving usually report, and it is easy to reason about: one conversation,
-# growing monotonically, one request in flight at a time.
+# The agent's own requests (`main`) climb in a staircase, exactly as the excerpts
+# above suggest: each turn is the previous turn plus the tool result, so the prompt
+# only ever grows — about 3,100 tokens at the start and 22,000 thirty-four turns
+# later. This is the shape that papers on agent serving usually report, and it is
+# easy to reason about: one conversation, growing monotonically, one request in
+# flight at a time.
 #
 # The `summarizer` requests are the part this trace captures that most published
 # traces do not, and they do not follow the conversation at all. Each one hands a
-# long scraped page to a cheaper model and gets a couple of hundred tokens back,
-# which is what the main agent then sees. That is also why the main agent's own
-# prompt grows as gently as it does: the summariser is absorbing the long documents
-# on its behalf. A third of the requests in this task are summariser calls, so
-# "prefill grows monotonically" describes only part of what the serving system
-# actually receives.
+# long scraped page to a cheaper model and gets a couple of hundred tokens back.
+# That is also why the main agent's own prompt grows as gently as it does: the
+# summariser is absorbing the long documents on its behalf. A third of the requests
+# in this task are summariser calls, so "prefill grows monotonically" describes only
+# part of what the serving system actually receives.
 #
-# Now the multi-agent system, where there is no single conversation to grow at all.
-# OWL splits the task across a planner, a coordinator and several workers, each
-# with its own context.
+# :::{admonition} Try it
+# :class: exercise
+# Change `MIRO_SESSION` above to another task (0-23) and rerun the cell. How much do
+# the staircase's height and slope vary between tasks, and how many summariser calls
+# does a task make? Which task would be the most expensive to serve?
+# :::
+#
+# ## A multi-agent system: OWL
+#
+# [OWL](https://github.com/camel-ai/owl) ([Hu et al., NeurIPS '25](https://arxiv.org/abs/2505.23885))
+# solves the same benchmark with a **team**: a planner splits the task into
+# subtasks, a coordinator hands each subtask to a worker, and the workers (web
+# search, code, browser, document reader) carry them out. Each of them runs its own
+# ReAct-style loop, in its own conversation, with its own system prompt.
 
 # %%
-one = sessions[sessions.session == 4]
-session_plot(one, f"OWL: one task, {len(one)} LLM requests")
+sessions = lsg.gaia_sessions(num_sessions=24, seed=0)
+print(f"{sessions.session.nunique()} sessions, {len(sessions)} LLM requests")
+sessions.drop(columns="token_ids").head(8)
 
 # %% [markdown]
-# Each dot represents a request from a sub-agent (plan, coordinate, web search, ...),
-# and when the agent uses a tool, the bar shows the tool execution time.
+# The columns are the same, but `role` now takes many values, one per sub-agent, and
+# the two models are split by difficulty rather than by job: gpt-4o for the work that
+# does not need heavy thinking, gpt-oss-120b for the work that does. (We take 24 of
+# the 165 tasks OWL ran; sessions containing a request longer than the course's
+# runtime predictor was fitted for are skipped, which removes the largest tasks.)
+#
+# ### What the model actually sees
+#
+# The same three steps as before — a prompt, a tool call, the result coming back —
+# but now they belong to different agents.
+
+# %%
+show(sessions, 0, 0, head=620, out=560)
+
+# %% [markdown]
+# That is the planner: it receives the user's task ("I went to Virtue restaurant & bar ...") and a description of the
+# available workers, and emits a list of subtasks. Everything is marked up with
+# the model's chat template (`<|start|>`, `<|message|>`, `<|end|>`); the
+# `<|channel|>final` and `<|channel|>analysis` markers separate the answer from the
+# model's own reasoning. MiroThinker's loop never produces a request like this,
+# because it never has to tell anyone else what to do.
+#
+# Two turns later, a web-search worker decides to call a tool. Its entire output is
+# 36 tokens of JSON — the call itself:
+
+# %%
+show(sessions, 0, 2, out=300)
+
+# %% [markdown]
+# The agent executes that call, which takes 1.2 s, and sends the *result back as
+# part of the next prompt*. Here is the end of the next request's prompt, which is
+# exactly the previous prompt, plus the previous output, plus the tool result:
+
+# %%
+show(sessions, 0, 3, tail=430, out=330)
+
+# %% [markdown]
+# That is the same mechanism as MiroThinker's, with one difference that decides the
+# whole shape of the workload: the prompt grows along *one worker's* branch rather
+# than along the task. When the coordinator moves on to the next subtask, a fresh
+# worker starts from its own system prompt and the accumulated context is dropped.
+#
+# ### The shape of a session
+
+# %%
+OWL_SESSION = 4          # any task id in the sample: 0-23
+one = sessions[sessions.session == OWL_SESSION]
+session_plot(one, f"OWL: task {OWL_SESSION}, {len(one)} LLM requests")
+
+# %% [markdown]
+# Compare this with MiroThinker's staircase. Each dot is a request from a sub-agent
+# (plan, coordinate, web search, ...), and when the agent uses a tool, the bar shows
+# the tool execution time.
 # The prompt length (y-axis of each dot) grows inside a stretch of turns and then drops: each time the
 # coordinator hands a subtask to a fresh worker, that worker starts a new
 # conversation with its own system prompt. Within a worker's stretch, every turn
 # adds a tool result to the prompt. Again, this is how OWL was designed and not necessarily universal.
 #
 # The flat band of twelve large turns in the middle is the web worker retrieving a long page, splitting it into twelve
-# pieces, and asking the model to summarise each piece in parallel. This is again a specific design
+# pieces, and asking the model to summarise each piece in parallel. MiroThinker
+# solves the same problem with a single summariser call; OWL splits it twelve ways
+# and releases all twelve requests at once, which no single-agent trace ever does.
+# This is again a specific design
 # made by the OWL authors to keep the prompt (prefill) length small and is not fundamental.
 # You don't have to understand every piece that is happening in this plot, and many things are specific to the
 # particular design of this agent; having a sense
@@ -235,9 +318,10 @@ session_plot(one, f"OWL: one task, {len(one)} LLM requests")
 #
 # :::{admonition} Try it
 # :class: exercise
-# Change the session id in the code above (`sessions.session == 4`) to another
-# number and rerun it. Different tasks are solved with quite different patterns of
-# sub-agents working together. Which one produces the most interesting plot?
+# Change `OWL_SESSION` above to another task (0-23) and rerun the cell. Different
+# tasks are solved with quite different patterns of sub-agents working together.
+# Which one produces the most interesting plot, and does any of them look like
+# MiroThinker's staircase?
 # :::
 #
 # ## Tokens, time, and tools
@@ -259,18 +343,18 @@ def shape(df):
             "turns waiting on a tool": (df.tool_time > 0).mean(),
             "tool time, median of those (s)": df.loc[df.tool_time > 0, "tool_time"].median()}
 
-pd.DataFrame({"OWL (multi-agent)": shape(sessions),
-              "MiroThinker (single agent)": shape(miro)}).round(2)
+pd.DataFrame({"MiroThinker (single agent)": shape(miro),
+              "OWL (multi-agent)": shape(sessions)}).round(2)
 
 # %%
 fig, ax = plt.subplots(1, 3, figsize=(13, 3.4))
-for col, (name, df) in enumerate([("OWL", sessions), ("MiroThinker", miro)]):
+for col, (name, df) in enumerate([("MiroThinker", miro), ("OWL", sessions)]):
     for role, g in df.groupby("role"):
         ax[col].scatter(g["num_prefill_tokens"], g["num_decode_tokens"], s=10, alpha=.6, label=role)
     ax[col].set(xlabel="prompt tokens", ylabel="output tokens" if col == 0 else "",
                 xscale="log", yscale="log", title=f"{name}: every request, by role")
     ax[col].legend(fontsize=7, ncol=2)
-for name, df in [("OWL", sessions), ("MiroThinker", miro)]:
+for name, df in [("MiroThinker", miro), ("OWL", sessions)]:
     tool = np.sort(df.loc[df.tool_time > 0, "tool_time"])
     ax[2].plot(tool, np.arange(1, len(tool) + 1) / len(tool), label=name)
 ax[2].set(xlabel="tool time (s)", ylabel="fraction of tool calls", xscale="log",
@@ -279,13 +363,14 @@ ax[2].legend(fontsize=8)
 fig.tight_layout()
 
 # %% [markdown]
-# Both systems are **prefill-heavy**, and the single agent much more so: 11 prompt
-# tokens per output token for OWL, 30 for MiroThinker. The reason is visible in the
-# scatter plots. OWL's sub-agents form distinct clouds — the coordinator answers
-# with a worker id, the web-search worker emits a tool call of a few dozen tokens,
-# the summariser reads a page chunk — while MiroThinker has just two: a main agent
-# whose prompt grows along the conversation, and a summariser sitting far to the
-# right with prompts of tens of thousands of tokens and tiny answers.
+# Both systems are **prefill-heavy**, and the single agent much more so: 30 prompt
+# tokens per output token for MiroThinker, 11 for OWL. The reason is visible in the
+# scatter plots. MiroThinker has two clouds: a main agent whose prompt grows along
+# the conversation, and a summariser sitting far to the right with prompts of tens
+# of thousands of tokens and tiny answers. OWL's sub-agents form many more — the
+# coordinator answers with a worker id, the web-search worker emits a tool call of a
+# few dozen tokens, the summariser reads a page chunk — and all of them are smaller,
+# because no single conversation is allowed to grow for long.
 #
 # Tools behave differently too. Two thirds of MiroThinker's turns wait on a tool
 # against a third of OWL's, and MiroThinker's waits are four times longer at the

@@ -25,6 +25,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -565,8 +566,51 @@ def gaia_trace(sessions: pd.DataFrame, name: str | None = None) -> Path:
     return path
 
 
-def decode(token_ids) -> str:
-    """Decode recorded token ids back to text (``o200k_harmony``, as the traces were made)."""
+QWEN_TOKENIZER_URL = ("https://huggingface.co/Qwen/Qwen2.5-32B-Instruct/resolve/main/"
+                      "tokenizer.json")
+
+
+def _qwen_tokenizer():
+    """Qwen's tokenizer, downloaded once (~7 MB) next to the simulator."""
+    try:
+        from tokenizers import Tokenizer
+    except ImportError:
+        print("Installing tokenizers ...", flush=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--progress-bar", "off",
+                        "tokenizers"], check=True)
+        from tokenizers import Tokenizer
+    path = WORK_DIR / "qwen_tokenizer.json"
+    if not path.exists():
+        print(f"Downloading Qwen's tokenizer into {path} (one-time, ~7 MB) ...", flush=True)
+        WORK_DIR.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(QWEN_TOKENIZER_URL, path)
+    return Tokenizer.from_file(str(path))
+
+
+# Which tokenizer each recorded model's ids belong to; everything not listed here
+# was recorded in o200k_harmony.
+MODEL_TOKENIZER = {"MiroThinker": "qwen"}
+
+
+def decode(token_ids, tokenizer: str | None = None) -> str:
+    """Decode recorded token ids back to text.
+
+    GAIATrace was recorded with two different tokenizers: OWL's requests and
+    MiroThinker's summariser use OpenAI's ``o200k_harmony``, while MiroThinker's
+    own requests use Qwen's. ``tokenizer`` takes ``"openai"``, ``"qwen"``, or a
+    value of the sessions table's ``model`` column; left out, it is guessed from
+    the first token id, which only works on a whole request.
+    """
+    if isinstance(token_ids, str):
+        token_ids = json.loads(token_ids)
+    token_ids = list(token_ids)
+    if tokenizer is None:
+        # A whole request opens with a special token: 151644 (<|im_start|>) for
+        # Qwen, 200006 (<|start|>) for harmony.
+        tokenizer = "qwen" if token_ids and token_ids[0] < 200000 else "openai"
+    tokenizer = MODEL_TOKENIZER.get(tokenizer, tokenizer)
+    if tokenizer == "qwen":
+        return _qwen_tokenizer().decode(token_ids, skip_special_tokens=False)
     try:
         import tiktoken
     except ImportError:
@@ -574,9 +618,7 @@ def decode(token_ids) -> str:
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--progress-bar", "off",
                         "tiktoken"], check=True)
         import tiktoken
-    if isinstance(token_ids, str):
-        token_ids = json.loads(token_ids)
-    return tiktoken.get_encoding("o200k_harmony").decode(list(token_ids))
+    return tiktoken.get_encoding("o200k_harmony").decode(token_ids)
 
 
 def sweep(param: str, values, **kwargs) -> pd.DataFrame:
