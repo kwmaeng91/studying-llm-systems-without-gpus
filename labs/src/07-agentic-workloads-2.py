@@ -260,8 +260,8 @@ timeline(sessions, 4, "OWL: one task on the GPU; the gaps are tool calls")
 # text by splitting it into twelve pieces, which is the strategy that OWL's authors
 # took to not significantly increase the context length of each request.
 #
-# With a lower prefix cache hit rate and/or many other requests on the same GPU, the bars will look different,
-# as we will see in lecture 8
+# With a lower prefix cache hit rate and/or many other requests on the same GPU,
+# the bars will look different, as we will see in lecture 8
 # (because prefill cannot be batched as nicely as decode, as we learned in lecture 2).
 
 # %%
@@ -274,8 +274,8 @@ timeline(miro, miro.groupby("session").size().idxmax(),
 # task's 775 s — the difference is tool time and the agent's own bookkeeping. Almost
 # nothing is spent queueing (7 s), because this task never competes with itself.
 #
-# Again, the story will change with more requests running on the same GPU (i.e., larger batch size),
-# as we will see in lecture 8.
+# Again, the story will change with more requests running on the same GPU
+# (i.e., larger batch size), as we will see in lecture 8.
 #
 # :::{admonition} Try it
 # :class: exercise
