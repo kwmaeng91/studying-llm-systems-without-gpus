@@ -50,13 +50,10 @@ plt.rcParams.update({"figure.figsize": (6, 3.5), "axes.grid": True, "grid.alpha"
 SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=2)
 
 # %% [markdown]
-# We load the same 24 OWL tasks as last lecture, and 24 MiroThinker tasks. This
-# time both have to be simulated, so both are capped: `gaia_sessions` skips a task
-# if any single request in it is longer than `max_tokens`, because the course's
-# runtime predictor was only fitted that far. OWL's default cap (16,384 tokens) is
-# enough; MiroThinker's requests are much longer, so we allow 32,768 and still lose
-# the largest tasks. Keep that in mind when reading the MiroThinker numbers: the
-# heaviest sessions are not in the sample.
+# We load the same 24 OWL tasks as last lecture, and 24 MiroThinker tasks. 
+# Again, our simulator cannot simulate long inputs and outputs, as it is stripped-down for
+# this lecture series. Thus, we exclude traces with too long inputs and outputs.
+# This mostly affects MiroThinker numbers, as it uses much longer inputs.
 
 # %%
 sessions = lsg.gaia_sessions(num_sessions=24, seed=0)                    # OWL, multi-agent
@@ -97,8 +94,7 @@ print(f"MiroThinker : {ideal_hit_rate(miro):.1%}")
 
 # %% [markdown]
 # About 60% of OWL's prompt tokens and 71% of MiroThinker's have been computed
-# before and can benefit from prefix caching. OWL's number roughly matches the
-# GAIATrace paper ([Kim et al., IISWC '26](https://arxiv.org/abs/2606.01725)).
+# before and can benefit from prefix caching.
 # These numbers are high, because the system prompt is long, and agents often look at their past conversation history, similar
 # to the multi-turn chat behavior from lecture 5.
 #
@@ -117,7 +113,7 @@ pd.DataFrame({role: {"prompt tokens": g.num_prefill_tokens.sum(),
 # one conversation that only ever appends, so almost every prompt is the previous
 # prompt plus a little. The summariser is at ~0%. Each of its calls is a different
 # scraped page behind the same short instruction, so there is nothing to reuse but
-# the instruction itself — and those calls carry a fifth of the prompt tokens, which
+# the instruction itself, which
 # drags the system-wide number down to 71%. A paper that only instruments the main
 # agent would report 87% for the very same system.
 #
@@ -263,7 +259,8 @@ timeline(sessions, 4, "OWL: one task on the GPU; the gaps are tool calls")
 # With a lower prefix cache hit rate and many other requests on the same GPU, the bars will look different
 # (because prefill cannot be batched as nicely as decode, as we learned in lecture 2).
 # Again, the twelve parallel tasks in the middle are OWL trying to summarize a very long web-scraped
-# text while not significantly increasing the context length.
+# text by splitting it into twelve pieces, which is the strategy that OWL's authors took to not significantly increase the context length
+# of each request.
 #
 # Note that the decode times summed over the turns (364 s) exceed the task's own
 # 320 s: that is only possible because some turns ran at the same time. The 120 s of
@@ -274,25 +271,14 @@ timeline(miro, miro.groupby("session").size().idxmax(),
          "MiroThinker: one task on the GPU; the gaps are tool calls")
 
 # %% [markdown]
-# The single agent looks completely different. There is one request in flight at a
+# The single agent looks simpler. There is one request in flight at a
 # time, so the bars form a staircase and the summed decode (587 s) is *less* than the
 # task's 775 s — the difference is tool time and the agent's own bookkeeping. Almost
 # nothing is spent queueing (7 s), because this task never competes with itself.
 #
-# That is the uncomfortable part for a serving system. For this task, the GPU was
-# never the problem: a faster replica would shorten the blue bars and leave the white
-# gaps untouched. What would help is the one thing a single serving replica cannot do
-# — run more of the task at once. Everything a serving system can do here is about
-# *other* tasks: filling the gaps with someone else's work, so the GPU is busy even
-# though no single user gets their answer sooner. That is where
-# {doc}`08-scheduling-agentic-workloads` goes next.
-#
 # :::{admonition} Try it
 # :class: exercise
-# 1. Measure how long OWL's join turn (the one whose `dep` lists twelve turns) waits
-#    after the *first* of its dependencies finishes. How much of that is queueing
-#    behind its own siblings, and what would a scheduler have to know to shorten it?
-# 2. Add up the white gaps in the MiroThinker timeline. If you could serve other
+# 1. Add up the white gaps in the MiroThinker timeline. If you could serve other
 #    tasks during them, how many such tasks would it take to keep the replica busy?
 # :::
 #
