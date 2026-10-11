@@ -365,11 +365,13 @@ pd.DataFrame({k: {**r.summary()[cols], "prompt tokens computed": r.requests["req
 #
 # :::{admonition} Try it
 # :class: exercise
-# **How much more load can the replica take?** 83% of the prompt tokens disappear,
-# but prefill is only one part of the work. Sweep `qps` from 1 to 8 on this trace
-# with caching off and on, and for each find the highest arrival rate that keeps
-# p99 TTFT under 2 s (the goodput idea from lecture 2). Is the improvement anywhere
-# near 83%? Account for the gap.
+# **Where does the saving go?** 83% of the prompt tokens disappear, but prefill is
+# only one part of the work. Rerun the comparison above at `qps=8`, where the 24
+# conversations pile on top of each other and the replica is actually busy, and
+# compare `throughput (tok/s)` and `total execution time (s)` with caching off and
+# on. The gain is real, but nowhere near 83%. Account for the gap: every turn still
+# has to decode its 200 output tokens one step at a time, and caching does not touch
+# decode.
 # :::
 #
 # The gain is not spread evenly over the conversation. Let's look per turn.

@@ -269,10 +269,12 @@ chunk를 싣고 가는 step이 줄어듭니다.
 
 :::{admonition} 직접 해보기
 :class: exercise
-**Replica가 얼마나 더 많은 부하를 감당할 수 있나?** Prompt token의 83%가 사라지지만,
-prefill은 전체 작업의 일부일 뿐입니다. 이 trace에서 caching을 끄고 켜며 `qps`를 1에서
-8까지 쓸어 보고, 각각 p99 TTFT를 2초 아래로 유지하는 가장 높은 도착률을 찾아보세요
-(2강의 goodput 개념). 개선 폭이 83% 근처라도 되나요? 그 차이를 설명해 보세요.
+**아낀 것은 어디로 갔나?** Prompt token의 83%가 사라지지만, prefill은 전체 작업의
+일부일 뿐입니다. 위 비교를 `qps=8`로 다시 돌려 보세요. 대화 24개가 거의 한꺼번에 몰려와
+replica가 실제로 바빠지는 지점입니다. 여기서 caching을 끈 경우와 켠 경우의
+`throughput (tok/s)`와 `total execution time (s)`를 비교해 보세요. 이득은 분명히 있지만
+83% 근처에는 턱없이 못 미칩니다. 그 차이를 설명해 보세요. 모든 turn은 여전히 output
+token 200개를 한 step에 하나씩 decode해야 하고, caching은 decode를 건드리지 못합니다.
 :::
 
 이득이 대화 전체에 고르게 퍼지는 것은 아닙니다. Turn별로 봅시다.
