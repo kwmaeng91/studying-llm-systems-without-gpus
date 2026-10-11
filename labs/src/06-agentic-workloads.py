@@ -81,9 +81,8 @@ SYSTEM = dict(model="Qwen/Qwen2.5-32B-Instruct", device="a100", tensor_parallel=
 # We start with the simpler of the two systems.
 # [MiroThinker](https://github.com/MiroMindAI/MiroThinker) is a **single agent**
 # running a **ReAct** loop ([Yao et al., ICLR '23](https://arxiv.org/abs/2210.03629)).
-# ReAct is the pattern most agents are built on: instead of answering in one shot,
-# the model alternates between *reasoning* ("I need to know which class can wear
-# this item") and *acting* (emitting a tool call, here in MCP's XML form). The
+# ReAct is the pattern many agents are built on: instead of answering in one shot,
+# the model alternates between *reasoning* (i.e., setting plans) and *acting* (i.e., emitting a tool call). The
 # tool's result is appended to the conversation, the model reasons again, and the
 # loop repeats until it answers. Everything stays in one conversation.
 #
@@ -106,9 +105,9 @@ miro.drop(columns="token_ids").head(8)
 # - `session` / `turn`: which task, and the position in it.
 # - `role`: which agent inside the system issued it — here only `main` (the agent
 #   itself) and `summarizer`.
-# - `model`: which model served the request in the recording. MiroThinker's own
-#   requests went to a Qwen-based model, and the summariser's to gpt-4o-mini. This
-#   is just how the authors of GAIATrace (that's me and my students!) ran it.
+# - `model`: which model served the request in the recording. MiroThinker is a finetuned Qwen-based model,
+#    and the summariser uses to gpt-4o-mini. This
+#   is just how the authors of GAIATrace (that's me and my students!) ran it, and there can be different model choices.
 # - `dep`: the turns that must finish before this one is released.
 # - `tool_time`: how long the tool call that this turn waited for actually took,
 #   measured by re-running the tool outside the agent.
