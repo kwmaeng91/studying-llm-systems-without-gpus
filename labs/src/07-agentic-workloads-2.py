@@ -256,15 +256,13 @@ timeline(sessions, 4, "OWL: one task on the GPU; the gaps are tool calls")
 # [Zhou et al., ICML '24](https://arxiv.org/abs/2310.04406)).
 # Second, you can see that the blue (decode) parts dominate. This is because the prefix cache hit
 # rate is high, and currently there is no other contention to the GPU.
-# With a lower prefix cache hit rate and many other requests on the same GPU, the bars will look different
-# (because prefill cannot be batched as nicely as decode, as we learned in lecture 2).
 # Again, the twelve parallel tasks in the middle are OWL trying to summarize a very long web-scraped
 # text by splitting it into twelve pieces, which is the strategy that OWL's authors
 # took to not significantly increase the context length of each request.
 #
-# Note that the decode times summed over the turns (364 s) exceed the task's own
-# 320 s: that is only possible because some turns ran at the same time. The 120 s of
-# queueing is mostly those siblings waiting for each other.
+# With a lower prefix cache hit rate and/or many other requests on the same GPU, the bars will look different,
+# as we will see in lecture 8
+# (because prefill cannot be batched as nicely as decode, as we learned in lecture 2).
 
 # %%
 timeline(miro, miro.groupby("session").size().idxmax(),
@@ -275,6 +273,9 @@ timeline(miro, miro.groupby("session").size().idxmax(),
 # time, so the bars form a staircase and the summed decode (587 s) is *less* than the
 # task's 775 s — the difference is tool time and the agent's own bookkeeping. Almost
 # nothing is spent queueing (7 s), because this task never competes with itself.
+#
+# Again, the story will change with more requests running on the same GPU (i.e., larger batch size),
+# as we will see in lecture 8.
 #
 # :::{admonition} Try it
 # :class: exercise
